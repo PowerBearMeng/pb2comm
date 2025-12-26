@@ -124,38 +124,36 @@ class PointPillarWhere2commmfh(nn.Module):
         rm_single = self.reg_head(spatial_features_2d)
 
         # =======================================================
-        # 【最终修正版逻辑】: 使用 record_len 来确定循环次数
+        # 【修改后逻辑】: 使用路侧点云 origin_lidar_i 进行猜测
         # =======================================================
         blind_spot_mask = None
-        # 确保有原始点云
-        if 'origin_lidar' in data_dict:
-            # 获取特征图尺寸 (H, W)
-            # 注意：这里我们只取 H 和 W，不要取 B！
+        
+        # 修改判断条件，优先查找 origin_lidar_i
+        target_lidar_key = 'origin_lidar_i' 
+        if target_lidar_key not in data_dict and 'origin_lidar' in data_dict:
+             # 如果没有独立的路侧点云，回退到融合点云 (仅用于调试或可视化开启时)
+            raise TypeError("Using 'origin_lidar' for blind spot mask calculation. This may be incorrect if 'origin_lidar_i' is available.")
+
+        if target_lidar_key in data_dict:
             _, _, H, W = spatial_features_2d.shape
-            
-            # 获取真实的 Batch Size (场景数量)
-            # record_len 是一个列表，长度等于 batch_size，记录了每个场景有多少辆车
             real_batch_size = len(record_len)
-            
-            gt_range = self.lidar_range
-            
-            # 获取 Batch 点云数据 [Batch_Size, N, C]
-            batch_origin_lidar = data_dict['origin_lidar']
+            gt_range = self.lidar_range   
+            # 【关键修改】：这里获取的是路侧点云
+            batch_origin_lidar = data_dict[target_lidar_key] 
             
             mask_list = []
             
-            # === 使用真实的 Batch Size 进行循环 ===
             for b in range(real_batch_size):
-                # 1. 获取当前样本的点云
                 lidar_tensor = batch_origin_lidar[b]
-                
-                # 转为 Numpy
                 if isinstance(lidar_tensor, torch.Tensor):
                     lidar_np = lidar_tensor.cpu().numpy()
+                    # print(lidar_np.shape)
                 else:
                     lidar_np = lidar_tensor
 
-                # 2. 计算当前样本的 Mask
+                # 调用盲区计算函数
+                # 注意：因为 Dataset 里已经把路侧点云投影到了 Ego 坐标系 (T_ego_infra * P_infra)
+                # 所以这里 ego_pose 依然设为 (0,0,0)，代表“以车为原点”
                 mask_np = get_blind_spot_mask(
                     lidar_np, 
                     ego_pose=(0,0,0), 
@@ -164,18 +162,10 @@ class PointPillarWhere2commmfh(nn.Module):
                     voxel_size=0.4
                 )
                 
-                # 转为 Tensor
                 mask_tensor = torch.from_numpy(mask_np).to(spatial_features_2d.device).float()
                 mask_list.append(mask_tensor)
 
-            # === 堆叠 Mask ===
-            # 结果形状应该是 [Batch_Size, 1, H, W]
             blind_spot_mask = torch.stack(mask_list, dim=0).unsqueeze(1)
-            
-        else:
-            if not self.training:
-                 print("DEBUG: 'origin_lidar' NOT found in data_dict!")
-        # =======================================================
 
         if self.multi_scale:
             # 注意：你需要确保 self.fusion_net 的 forward 接受 blind_spot_mask 参数

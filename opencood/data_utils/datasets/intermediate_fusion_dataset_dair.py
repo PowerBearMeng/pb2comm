@@ -300,7 +300,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
         object_bbx_mask : np.ndarray
             Indicate which elements in object_bbx_center are padded.
         """
-        print("我被数据增强了！！！！")
         tmp_dict = {'lidar_np': lidar_np,
                     'object_bbx_center': object_bbx_center,
                     'object_bbx_mask': object_bbx_mask}
@@ -365,8 +364,8 @@ class IntermediateFusionDatasetDAIR(Dataset):
         projected_lidar_clean_list = []
         cav_id_list = []
 
-        if self.visualize:
-            projected_lidar_stack = []
+        # if self.visualize:
+        projected_lidar_stack = []
 
         # loop over all CAVs to process information
         for cav_id, selected_cav_base in base_data_dict.items():
@@ -425,8 +424,8 @@ class IntermediateFusionDatasetDAIR(Dataset):
                 projected_lidar_clean_list.append(
                     selected_cav_processed['projected_lidar_clean'])
 
-            if self.visualize:
-                projected_lidar_stack.append(
+            # if self.visualize:
+            projected_lidar_stack.append(
                     selected_cav_processed['projected_lidar'])
 
         ########## Added by Yifan Lu 2022.4.5 ################
@@ -508,7 +507,13 @@ class IntermediateFusionDatasetDAIR(Dataset):
         if self.kd_flag:
             processed_data_dict['ego'].update({'teacher_processed_lidar':
                 stack_feature_processed})
-
+        if len(projected_lidar_stack) > 1:
+            processed_data_dict['ego'].update({'origin_lidar_i':
+                    projected_lidar_stack[1]})
+        else:
+            raise TypeError("Only one agent present, 'origin_lidar_i' is unavailable.")
+        #processed_data_dict['ego'].update({'origin_lidar_i': projected_lidar_stack[1]})
+        
         if self.visualize:
             processed_data_dict['ego'].update({'origin_lidar':
                 np.vstack(
@@ -555,6 +560,7 @@ class IntermediateFusionDatasetDAIR(Dataset):
         # pairwise transformation matrix
         pairwise_t_matrix_list = []
 
+        origin_lidar_i = [] # <--- 新增
         if self.kd_flag:
             teacher_processed_lidar_list = []
         if self.visualize:
@@ -591,6 +597,7 @@ class IntermediateFusionDatasetDAIR(Dataset):
             if self.kd_flag:
                 teacher_processed_lidar_list.append(ego_dict['teacher_processed_lidar'])
 
+            origin_lidar_i.append(ego_dict['origin_lidar_i']) # <--- 新增: 总是获取
             if self.visualize:
                 origin_lidar.append(ego_dict['origin_lidar'])
                 origin_lidar_v.append(ego_dict['origin_lidar_v'])
@@ -662,6 +669,10 @@ class IntermediateFusionDatasetDAIR(Dataset):
                                    'lidar_pose_clean': lidar_pose_clean,
                                    'lidar_pose': lidar_pose})
 
+        origin_lidar_i = np.array(downsample_lidar_minimum(pcd_np_list=origin_lidar_i))
+        origin_lidar_i = torch.from_numpy(origin_lidar_i)
+        output_dict['ego'].update({'origin_lidar_i': origin_lidar_i})
+        
         if self.visualize:
             origin_lidar = \
                 np.array(downsample_lidar_minimum(pcd_np_list=origin_lidar))

@@ -37,9 +37,9 @@ def main():
     hypes = yaml_utils.load_yaml(opt.hypes_yaml, opt)
 
     print('Dataset Building')
-    opencood_train_dataset = build_dataset(hypes, visualize=True, train=True)
+    opencood_train_dataset = build_dataset(hypes, visualize=False, train=True)
     opencood_validate_dataset = build_dataset(hypes,
-                                              visualize=True,
+                                              visualize=False,
                                               train=False)
 
     train_loader = DataLoader(opencood_train_dataset,
