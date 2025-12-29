@@ -64,7 +64,8 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
 
     def retrieve_base_data(self, idx):
         frame_info = self.split_info[idx]
-        
+        veh_frame_id = frame_info['vehicle_frame']
+        infra_frame_id = frame_info['infrastructure_frame']
         data = OrderedDict()
         
         # --- 1. Vehicle Side (Ego) ---
@@ -84,7 +85,10 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
             vehicles_label = self.load_and_format_label(label_path)
         
         data[0]['params']['vehicles'] = vehicles_label
-        data[0]['params']['vehicles_single'] = vehicles_label 
+        ######################## Single View GT ########################
+        vehicle_side_path = os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id))
+        data[0]['params']['vehicles_single']  = self.load_and_format_label(vehicle_side_path)
+        ######################## Single View GT ########################
 
         # 加载点云
         veh_lidar_path = os.path.join(self.root_dir, frame_info['vehicle_pointcloud_bin_path'])
@@ -105,6 +109,7 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
             offset = frame_info.get('system_error_offset')
             if offset is None:
                 offset = {"delta_x": 0.0, "delta_y": 0.0}
+            # offset = {"delta_x": 0.0, "delta_y": 0.0}
 
             try:
                 t_i2v = inf_side_rot_and_trans_to_trasnformation_matrix(i2v_json_content, offset)
@@ -115,54 +120,17 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
                     t_i2v = inf_side_rot_and_trans_to_trasnformation_matrix(i2v_json_content, offset)
                 else:
                     raise ValueError(f"Unknown translation format in {i2v_path}")
-
             data[1]['params']['lidar_pose'] = tfm_to_pose(t_i2v)
             data[1]['params']['lidar_pose_clean'] = tfm_to_pose(t_i2v)
         else:
             return None 
         
-        # =======================================================
-        # 【修复版】将车端标签投影到路端
-        # =======================================================
-        if data[1] is not None and 'lidar_pose' in data[1]['params']:
-            # 1. 取出数据并转为 numpy
-            pose_infra_6d = data[1]['params']['lidar_pose'] 
-            pose_infra_6d = np.array(pose_infra_6d)
-            
-            # 2. 【关键】升维：(6,) -> (1, 6) 以满足 pose_to_tfm 的输入要求
-            pose_infra_6d = pose_infra_6d.reshape(1, -1)
-            
-            # 3. 转换并降维：(1, 4, 4) -> (4, 4)
-            t_i2v = pose_to_tfm(pose_infra_6d)[0] 
-            
-            # 4. 求逆：Infra -> Ego 的逆矩阵是 Ego -> Infra
-            t_v2i = np.linalg.inv(t_i2v)
-            
-            infra_vehicles = []
-            if 'vehicles' in data[0]['params']:
-                ego_vehicles = data[0]['params']['vehicles']
-                
-                for veh in ego_vehicles:
-                    loc_ego = np.array(veh['location'])
-                    loc_ego_homo = np.append(loc_ego, 1) # [x, y, z, 1]
-                    
-                    # 坐标变换: T * P
-                    loc_infra = t_v2i @ loc_ego_homo
-                    
-                    # 角度变换 (仅旋转)
-                    rot_matrix = t_v2i[:3, :3]
-                    yaw_ego = veh['angle']
-                    vec_ego = np.array([np.cos(yaw_ego), np.sin(yaw_ego), 0])
-                    vec_infra = rot_matrix @ vec_ego
-                    yaw_infra = np.arctan2(vec_infra[1], vec_infra[0])
-
-                    new_veh = veh.copy()
-                    new_veh['location'] = loc_infra[:3].tolist()
-                    new_veh['angle'] = yaw_infra
-                    infra_vehicles.append(new_veh)
-            
-            data[1]['params']['vehicles'] = infra_vehicles
-            data[1]['params']['vehicles_single'] = infra_vehicles
+        data[1]['params']['vehicles'] = []
+         ######################## Single View GT ########################
+        infra_side_path = os.path.join(self.root_dir, 'infrastructure-side/label/virtuallidar/{}.json'.format(infra_frame_id))
+        data[1]['params']['vehicles_single'] = self.load_and_format_label(infra_side_path)
+        ######################## Single View GT ########################
+    
         inf_lidar_path = os.path.join(self.root_dir, frame_info['infrastructure_pointcloud_bin_path'])
         data[1]['lidar_np'] = self.load_bin_file(inf_lidar_path)
 
@@ -172,8 +140,6 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
         if not os.path.exists(path):
             raise FileNotFoundError(f"File not found: {path}")
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 4)
-        if points[:, 3].max() > 1.0:
-            points[:, 3] /= 255.0
         if np.isnan(points).any():
             points = points[~np.isnan(points).any(axis=1)]
         return points
@@ -208,23 +174,22 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
         # 即使您不希望加“额外”的东西，这其实是必要的“容错处理”。
         # 我们创建一个临时的 range 用于过滤框，不影响原始 range 过滤点云。
         lidar_range_for_box = list(lidar_range)
-        lidar_range_for_box[2] -= 2.0  # z_min 放宽 (比如 -3 -> -5)
-        lidar_range_for_box[5] += 2.0  # z_max 放宽 (比如 1 -> 3)
+        lidar_range_for_box[2] -= 1.0  # z_min 放宽 (比如 -3 -> -5)
+        lidar_range_for_box[5] += 1.0  # z_max 放宽 (比如 1 -> 3)
         # =================
         
         object_dict = {}
         for content in cav_contents:
-            if 'params' not in content or 'vehicles' not in content['params']:
+            if 'params' not in content or 'vehicles_single' not in content['params']:
                 continue
                 
-            vehicles = content['params']['vehicles']
+            vehicles = content['params']['vehicles_single']
             for obj in vehicles:
                 obj_id = obj['id']
                 loc = np.array(obj['location'])
-                dim = obj['dimensions'] # [l, w, h]
+                dim = obj['dimensions'] # [h, w, l]
                 h, w, l = dim[0], dim[1], dim[2]
                 yaw = obj['angle']
-                
                 # 构造 [x, y, z, dx, dy, dz, yaw]
                 if order == 'hwl':
                     box = np.array([loc[0], loc[1], loc[2], h, w, l, yaw])
@@ -254,7 +219,7 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
                 object_ids.append(key)
 
         return object_np, mask, object_ids
-
+    
     def generate_object_center_single(self, cav_contents, reference_lidar_pose, return_visible_mask=False):
         # 单车视角直接复用上面的逻辑
         return self.generate_object_center(cav_contents, reference_lidar_pose, return_visible_mask)
