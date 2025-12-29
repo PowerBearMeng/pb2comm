@@ -245,15 +245,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
         if self.proj_first:
             lidar_np[:, :3] = projected_lidar
         
-        # # === 【在这里插入增强逻辑】 ===
-        # # 如果你想做增强，必须在这里做，并且同时更新 lidar_np 和 GT Box
-        # if self.train:
-        #      # 注意：你需要把 augment 函数稍微改一下以适配单车逻辑，或者在这里手动调用 data_augmentor
-        #      # 关键是：增强后的点云必须更新回 lidar_np
-        #      lidar_np, object_bbx_center, object_bbx_mask = \
-        #          self.augment(lidar_np, object_bbx_center, object_bbx_mask)
-        # # ==========================
-
         # processed_lidar = self.pre_processor.preprocess(lidar_np)
         
         lidar_np = mask_points_by_range(lidar_np,
@@ -528,6 +519,9 @@ class IntermediateFusionDatasetDAIR(Dataset):
         processed_data_dict['ego'].update({'sample_idx': idx,
                                             'cav_id_list': cav_id_list})
 
+        # print("\n========== INSPECT SAMPLE 0 ==========")
+        # self.inspect_data(processed_data_dict)
+        # print("======================================\n")
         return processed_data_dict
     
     def collate_batch_train(self, batch):
@@ -833,3 +827,19 @@ class IntermediateFusionDatasetDAIR(Dataset):
         gt_box_tensor = self.post_processor.generate_gt_bbx(data_dict)
 
         return pred_box_tensor, pred_score, gt_box_tensor
+
+    def inspect_data(self, obj, prefix=""):
+        if isinstance(obj, dict):
+            print(f"{prefix}dict with keys:")
+            for k, v in obj.items():
+                self.inspect_data(v, prefix + f"  [{k}] -> ")
+        elif isinstance(obj, (list, tuple)):
+            print(f"{prefix}{type(obj).__name__} len = {len(obj)}")
+            if len(obj) > 0:
+                self.inspect_data(obj[0], prefix + "  [0] -> ")
+        elif isinstance(obj, np.ndarray):
+            print(f"{prefix}np.ndarray shape={obj.shape}, dtype={obj.dtype}")
+        elif torch.is_tensor(obj):
+            print(f"{prefix}torch.Tensor shape={tuple(obj.shape)}, dtype={obj.dtype}")
+        else:
+            print(f"{prefix}{type(obj).__name__}: {obj}")

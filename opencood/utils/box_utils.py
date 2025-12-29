@@ -1125,6 +1125,7 @@ def load_single_objects_dairv2x(object_list,
         'lwh' or 'hwl'
     """
     i = 0
+    print("load_single_objects_dairv2x")
     for object_content in object_list:        
         object_id = i
         if 'rotation' not in object_content:

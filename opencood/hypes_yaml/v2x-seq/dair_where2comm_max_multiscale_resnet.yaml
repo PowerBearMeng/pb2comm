@@ -1,4 +1,4 @@
-name: dair_where2comm_max_multiscale_resnet
+name: seq_where2comm_max_multiscale_resnet
 data_dir: '/home/yty/mfh/code/openDATA/V2X-Seq-SPD'
 root_dir: '/home/yty/mfh/code/inter/FFNet-VIC3D/data/v2x-seq/flow_data_jsons_mfh/flow_data_info_train.json'
 validate_dir: '/home/yty/mfh/code/inter/FFNet-VIC3D/data/v2x-seq/flow_data_jsons_mfh/flow_data_info_val_0.json'
@@ -17,14 +17,14 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
-  epoches: 10
+  epoches: 5
   eval_freq: 2
   save_freq: 2
   max_cav: &max_cav 2
 
 
 fusion:
-  core_method: 'IntermediateFusionDatasetDAIR' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
+  core_method: 'IntermediateFusionDatasetSeq' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
   args:
     proj_first: false
     clip_pc: false

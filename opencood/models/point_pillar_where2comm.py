@@ -14,14 +14,12 @@ from opencood.models.sub_modules.downsample_conv import DownsampleConv
 from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.models.sub_modules.dcn_net import DCNNet
 # from opencood.models.fuse_modules.where2comm import Where2comm
-from opencood.utils.blind_spot_utils import get_blind_spot_mask
 from opencood.models.fuse_modules.where2comm_attn import Where2comm
 import torch
 
 class PointPillarWhere2comm(nn.Module):
     def __init__(self, args):
         super(PointPillarWhere2comm, self).__init__()
-
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],
                                     num_point_features=4,
@@ -91,7 +89,6 @@ class PointPillarWhere2comm(nn.Module):
         return split_x
 
     def forward(self, data_dict):
-        print('from models')
         voxel_features = data_dict['processed_lidar']['voxel_features']
         voxel_coords = data_dict['processed_lidar']['voxel_coords']
         voxel_num_points = data_dict['processed_lidar']['voxel_num_points']

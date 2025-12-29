@@ -20,7 +20,7 @@ from opencood.utils.box_utils import project_points_by_matrix_torch
 
 def test_parser():
     parser = argparse.ArgumentParser(description="Blind Spot Visualization")
-    parser.add_argument('--model_dir', type=str, default="/home/yty/mfh/code/inter/Where2comm/opencood/logs/dair_where2comm_max_multiscale_resnet_2025_12_23_14_07_13",
+    parser.add_argument('--model_dir', type=str, default="/home/yty/mfh/code/inter/Where2comm/opencood/logs/dair_where2comm_max_multiscale_resnet_2025_12_26_21_37_17",
                         help='Path to the training log directory')
     parser.add_argument('--comm_thre', type=float, default=None,
                         help='Override communication threshold')
