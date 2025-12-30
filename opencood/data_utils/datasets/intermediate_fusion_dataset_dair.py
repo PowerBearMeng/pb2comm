@@ -211,7 +211,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
             The dictionary contains the cav's processed information.
         """
         selected_cav_processed = {}
-
         # calculate the transformation matrix
         transformation_matrix = \
             x1_to_x2(selected_cav_base['params']['lidar_pose'],
@@ -376,10 +375,10 @@ class IntermediateFusionDatasetDAIR(Dataset):
             lidar_pose_clean_list.append(selected_cav_base['params']['lidar_pose_clean'])
             lidar_pose_list.append(selected_cav_base['params']['lidar_pose']) # 6dof pose
             cav_id_list.append(cav_id)
+        
 
         for cav_id in cav_id_list:
             selected_cav_base = base_data_dict[cav_id]
-
             ego_keypoints = None
             ego_allpoints = None
             if self.select_keypoint:

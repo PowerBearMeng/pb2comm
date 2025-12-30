@@ -170,20 +170,13 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
         """
         order = self.params['postprocess']['order'] 
         lidar_range = self.params['preprocess']['cav_lidar_range']
-        # === 【修改点】 ===
-        # 即使您不希望加“额外”的东西，这其实是必要的“容错处理”。
-        # 我们创建一个临时的 range 用于过滤框，不影响原始 range 过滤点云。
-        lidar_range_for_box = list(lidar_range)
-        lidar_range_for_box[2] -= 1.0  # z_min 放宽 (比如 -3 -> -5)
-        lidar_range_for_box[5] += 1.0  # z_max 放宽 (比如 1 -> 3)
-        # =================
         
         object_dict = {}
         for content in cav_contents:
-            if 'params' not in content or 'vehicles_single' not in content['params']:
+            if 'params' not in content or 'vehicles' not in content['params']:
                 continue
                 
-            vehicles = content['params']['vehicles_single']
+            vehicles = content['params']['vehicles']
             for obj in vehicles:
                 obj_id = obj['id']
                 loc = np.array(obj['location'])
@@ -221,5 +214,60 @@ class IntermediateFusionDatasetSeq(IntermediateFusionDatasetDAIR):
         return object_np, mask, object_ids
     
     def generate_object_center_single(self, cav_contents, reference_lidar_pose, return_visible_mask=False):
-        # 单车视角直接复用上面的逻辑
-        return self.generate_object_center(cav_contents, reference_lidar_pose, return_visible_mask)
+        """
+        专门处理单车视角 (Single View) 的标签，读取 'vehicles_single' 键。
+        """
+        # 1. 容错处理：防止传入字典导致报错
+        if isinstance(cav_contents, dict):
+            cav_contents = [cav_contents]
+
+        order = self.params['postprocess']['order'] 
+        lidar_range = self.params['preprocess']['cav_lidar_range']
+        
+        
+        object_dict = {}
+        for content in cav_contents:
+            # === 【关键修改点 1】: 检查 'vehicles_single' ===
+            if 'params' not in content or 'vehicles_single' not in content['params']:
+                continue
+            
+            # === 【关键修改点 2】: 读取 'vehicles_single' ===   
+            vehicles = content['params']['vehicles_single']
+            
+            for obj in vehicles:
+                obj_id = obj['id']
+                loc = np.array(obj['location'])
+                dim = obj['dimensions'] # [h, w, l]
+                h, w, l = dim[0], dim[1], dim[2]
+                yaw = obj['angle']
+                
+                # 构造 [x, y, z, dx, dy, dz, yaw]
+                if order == 'hwl':
+                    box = np.array([loc[0], loc[1], loc[2], h, w, l, yaw])
+                else: 
+                    box = np.array([loc[0], loc[1], loc[2], l, w, h, yaw])
+                
+                # 过滤范围
+                box_expanded = box.reshape(1, 7)
+                box_filtered = box_utils.mask_boxes_outside_range_numpy(
+                    box_expanded, lidar_range, order
+                )
+                
+                if box_filtered.shape[0] > 0:
+                    object_dict[obj_id] = box_filtered[0]
+
+        # 转换为 Tensor 格式 (这部分逻辑与 generate_object_center 完全一致)
+        max_num = self.params['postprocess']['max_num']
+        object_np = np.zeros((max_num, 7))
+        mask = np.zeros(max_num)
+        object_ids = []
+
+        if len(object_dict) > 0:
+            for i, (key, val) in enumerate(object_dict.items()):
+                if i >= max_num:
+                    break
+                object_np[i] = val
+                mask[i] = 1
+                object_ids.append(key)
+
+        return object_np, mask, object_ids
