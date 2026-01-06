@@ -1087,10 +1087,98 @@ def project_world_objects_dairv2x(object_list,
         lidar_to_world = x_to_world(lidar_pose) # T_world_lidar
         world_to_lidar = np.linalg.inv(lidar_to_world)
 
-        corners_world = np.array(object_content['world_8_points']) # [8,3]
+        # 新代码：使用 xyz, hwl, yaw 现场计算 world_8_points
+        # 假设你的数据结构里有这些字段
+        if 'world_8_points_211' in object_content:
+             corners_world = np.array(object_content['world_8_points_211'])
+        else:
+            loc = object_content['3d_location'] 
+            dim = object_content['3d_dimensions']
+            rot = object_content['rotation'] 
+            
+            # 2. 构造 (1, 7) 的数组: [x, y, z, h, w, l, yaw]
+            # 注意：这里的顺序必须配合 order 参数，如果是 'hwl'，顺序就是 h,w,l
+            if order == 'hwl':
+                box_center = np.array([[loc['x'], loc['y'], loc['z'], 
+                                        dim['h'], dim['w'], dim['l'], rot]])
+            else: # 'lwh'
+                box_center = np.array([[loc['x'], loc['y'], loc['z'], 
+                                        dim['l'], dim['w'], dim['h'], rot]])
+            
+            # 3. 调用现成函数生成 8 个点
+            corners_world = boxes_to_corners_3d(box_center, order)[0] # 取出第0个，得到 (8, 3)
+        # ================= 修改结束 =================
+
         corners_world_homo = np.pad(corners_world, ((0,0), (0,1)), constant_values=1) # [8, 4]
         corners_lidar = (world_to_lidar @ corners_world_homo.T).T 
 
+        lidar_range_z_larger = copy.deepcopy(lidar_range)
+        lidar_range_z_larger[2] -= 1
+        lidar_range_z_larger[5] += 1
+
+        bbx_lidar = corners_lidar
+        bbx_lidar = np.expand_dims(bbx_lidar[:, :3], 0) # [1, 8, 3]
+        bbx_lidar = corner_to_center(bbx_lidar, order=order)
+        bbx_lidar = mask_boxes_outside_range_numpy(bbx_lidar,lidar_range_z_larger,order)
+        if bbx_lidar.shape[0] > 0:
+            output_dict.update({object_id: bbx_lidar})
+
+def project_world_objects_carla(object_list,
+                          output_dict,
+                          lidar_pose,
+                          lidar_range,
+                          order):
+    """
+    Project the objects under world coordinates into another coordinate
+    based on the provided extrinsic.
+
+    Parameters
+    ----------
+    object_list : list
+        The list contains all objects surrounding a certain cav.
+
+    output_dict : dict
+        key: object id, value: object bbx (xyzlwhyaw).
+
+    lidar_pose : list
+        (6, ), lidar pose under world coordinate, [x, y, z, roll, yaw, pitch].
+
+    lidar_range : list
+         [minx, miny, minz, maxx, maxy, maxz]
+
+    order : str
+        'lwh' or 'hwl'
+    """
+    i = 0
+    for object_content in object_list:        
+        object_id = i
+        i = i + 1
+        # lidar_to_world = x_to_world(lidar_pose) # T_world_lidar
+        # world_to_lidar = np.linalg.inv(lidar_to_world)
+
+        if 'world_8_points' in object_content:
+             corners_world = np.array(object_content['world_8_points'])
+        else:
+            loc = object_content['3d_location'] 
+            dim = object_content['3d_dimensions']
+            rot = object_content['rotation'] 
+            
+            # 2. 构造 (1, 7) 的数组: [x, y, z, h, w, l, yaw]
+            # 注意：这里的顺序必须配合 order 参数，如果是 'hwl'，顺序就是 h,w,l
+            if order == 'hwl':
+                box_center = np.array([[loc['x'], loc['y'], loc['z'], 
+                                        dim['h'], dim['w'], dim['l'], rot]])
+            else: # 'lwh'
+                box_center = np.array([[loc['x'], loc['y'], loc['z'], 
+                                        dim['l'], dim['w'], dim['h'], rot]])
+            
+            # 3. 调用现成函数生成 8 个点
+            corners_world = boxes_to_corners_3d(box_center, order)[0] # 取出第0个，得到 (8, 3)
+        # ================= 修改结束 =================
+
+        # corners_world_homo = np.pad(corners_world, ((0,0), (0,1)), constant_values=1) # [8, 4]
+        # corners_lidar = (world_to_lidar @ corners_world_homo.T).T 
+        corners_lidar = corners_world
         lidar_range_z_larger = copy.deepcopy(lidar_range)
         lidar_range_z_larger[2] -= 1
         lidar_range_z_larger[5] += 1
@@ -1125,7 +1213,6 @@ def load_single_objects_dairv2x(object_list,
         'lwh' or 'hwl'
     """
     i = 0
-    print("load_single_objects_dairv2x")
     for object_content in object_list:        
         object_id = i
         if 'rotation' not in object_content:

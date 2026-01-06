@@ -6,7 +6,7 @@
 """
 Transformation utils
 """
-
+import math
 from re import X
 import numpy as np
 import torch
@@ -400,6 +400,46 @@ def inf_side_rot_and_trans_to_trasnformation_matrix(json_file,system_error_offse
     matrix[3, 0:3] = 0
     matrix[3, 3] = 1
 
+    return matrix
+
+def carla_pose_to_transformation_matrix(pose_dict, system_error_offset):
+    """
+    从字典(x,y,z,pitch,yaw,roll)构建 4x4 变换矩阵 (Carla/Unreal Convention)
+    顺序: Scale -> Rotation(Z-Y-X) -> Translation
+    这里只考虑 Rotation 和 Translation
+    """
+    x = pose_dict['x']
+    y = pose_dict['y']
+    z = pose_dict['z']
+    
+    # Carla uses degrees, convert to radians
+    pitch = math.radians(pose_dict['pitch'])
+    yaw = math.radians(pose_dict['yaw'])
+    roll = math.radians(pose_dict['roll'])
+    # Rotation Matrix calculation (Z-Y-X order for Carla/Unreal)
+    # 参考 CARLA 官方转换逻辑
+    c_y = np.cos(yaw)
+    s_y = np.sin(yaw)
+    c_r = np.cos(roll)
+    s_r = np.sin(roll)
+    c_p = np.cos(pitch)
+    s_p = np.sin(pitch)
+    
+    matrix = np.identity(4)
+    matrix[0, 0] = c_p * c_y
+    matrix[0, 1] = c_y * s_p * s_r - s_y * c_r
+    matrix[0, 2] = -c_y * s_p * c_r - s_y * s_r
+    matrix[1, 0] = c_p * s_y
+    matrix[1, 1] = s_y * s_p * s_r + c_y * c_r
+    matrix[1, 2] = -s_y * s_p * c_r + c_y * s_r
+    matrix[2, 0] = s_p
+    matrix[2, 1] = -c_p * s_r
+    matrix[2, 2] = c_p * c_r
+    
+    matrix[0, 3] = x
+    matrix[1, 3] = y
+    matrix[2, 3] = z
+    
     return matrix
 
 

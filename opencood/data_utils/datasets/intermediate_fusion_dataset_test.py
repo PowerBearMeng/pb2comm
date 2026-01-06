@@ -33,13 +33,14 @@ def load_json(path):
         data = json.load(f)
     return data
 
-class IntermediateFusionDatasetDAIR(Dataset):
+class IntermediateFusionDatasetTest(Dataset):
     """
     This class is for intermediate fusion where each vehicle transmit the
     deep features to ego.
     """
     def __init__(self, params, visualize, train=True):
         self.params = params
+        print("test")
         self.visualize = visualize
         self.train = train
         self.data_augmentor = DataAugmentor(params['data_augment'],
@@ -83,11 +84,11 @@ class IntermediateFusionDatasetDAIR(Dataset):
 
         self.root_dir = params['data_dir']
         self.split_info = load_json(split_dir)
-        co_datainfo = load_json(os.path.join(self.root_dir, 'cooperative/data_info.json'))
-        self.co_data = OrderedDict()
-        for frame_info in co_datainfo:
-            veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
-            self.co_data[veh_frame_id] = frame_info
+        # co_datainfo = load_json(os.path.join(self.root_dir, 'cooperative/data_info.json'))
+        # self.co_data = OrderedDict()
+        # for frame_info in co_datainfo:
+        #     veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
+        #     self.co_data[veh_frame_id] = frame_info
 
     def retrieve_base_data(self, idx):
         """
@@ -104,8 +105,10 @@ class IntermediateFusionDatasetDAIR(Dataset):
             The dictionary contains loaded yaml params and lidar data for
             each cav.
         """
-        veh_frame_id = self.split_info[idx]
-        frame_info = self.co_data[veh_frame_id]
+        # veh_frame_id = self.split_info[idx]
+        # frame_info = self.co_data[veh_frame_id]
+        frame_info = self.split_info[idx]
+        veh_frame_id = frame_info['vehicle_idx']
         system_error_offset = frame_info["system_error_offset"]
         data = OrderedDict()
         data[0] = OrderedDict() # veh-side
@@ -275,7 +278,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
 
         return selected_cav_processed
 
-    # 没用上
     def augment(self, lidar_np, object_bbx_center, object_bbx_mask):
         """
         Given the raw point cloud, augment by flipping and rotation.
@@ -320,12 +322,8 @@ class IntermediateFusionDatasetDAIR(Dataset):
 
     def __getitem__(self, idx):
         base_data_dict = self.retrieve_base_data(idx)
-        # data [0]  -- veh-side
-        # data [1]  -- inf-side  
-        # "lidar_np": np.ndarray of shape (n, 4), first three channels are x,y,z
-        # 还有 label信息 还有 转移矩阵信息
+
         base_data_dict = add_noise_data_dict(base_data_dict,self.params['noise_setting'])
-        # 加噪声
 
         processed_data_dict = OrderedDict()
         processed_data_dict['ego'] = {}
@@ -364,6 +362,18 @@ class IntermediateFusionDatasetDAIR(Dataset):
 
         # loop over all CAVs to process information
         for cav_id, selected_cav_base in base_data_dict.items():
+            # check if the cav is within the communication range with ego
+            # distance = \
+            #     math.sqrt((selected_cav_base['params']['lidar_pose'][0] -
+            #                ego_lidar_pose[0]) ** 2 + (
+            #                       selected_cav_base['params'][
+            #                           'lidar_pose'][1] - ego_lidar_pose[
+            #                           1]) ** 2)
+
+            # if distance is too far, we will just skip this agent
+            # if distance > self.params['comm_range']:
+            #     too_far.append(cav_id)
+            #     continue
 
             lidar_pose_clean_list.append(selected_cav_base['params']['lidar_pose_clean'])
             lidar_pose_list.append(selected_cav_base['params']['lidar_pose']) # 6dof pose
@@ -374,7 +384,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
             selected_cav_base = base_data_dict[cav_id]
             ego_keypoints = None
             ego_allpoints = None
-            # self.select_keypoint = False
             if self.select_keypoint:
                 if self.proj_first and cav_id != ego_id:
                     ego_keypoints = base_data_dict[ego_id]['lidar_keypoints_np'] # ego's keypoint 
@@ -512,7 +521,9 @@ class IntermediateFusionDatasetDAIR(Dataset):
         processed_data_dict['ego'].update({'sample_idx': idx,
                                             'cav_id_list': cav_id_list})
 
-
+        # print("\n========== INSPECT SAMPLE 0 ==========")
+        # self.inspect_data(processed_data_dict)
+        # print("======================================\n")
         return processed_data_dict
     
     def collate_batch_train(self, batch):
@@ -819,4 +830,18 @@ class IntermediateFusionDatasetDAIR(Dataset):
 
         return pred_box_tensor, pred_score, gt_box_tensor
 
-
+    def inspect_data(self, obj, prefix=""):
+        if isinstance(obj, dict):
+            print(f"{prefix}dict with keys:")
+            for k, v in obj.items():
+                self.inspect_data(v, prefix + f"  [{k}] -> ")
+        elif isinstance(obj, (list, tuple)):
+            print(f"{prefix}{type(obj).__name__} len = {len(obj)}")
+            if len(obj) > 0:
+                self.inspect_data(obj[0], prefix + "  [0] -> ")
+        elif isinstance(obj, np.ndarray):
+            print(f"{prefix}np.ndarray shape={obj.shape}, dtype={obj.dtype}")
+        elif torch.is_tensor(obj):
+            print(f"{prefix}torch.Tensor shape={tuple(obj.shape)}, dtype={obj.dtype}")
+        else:
+            print(f"{prefix}{type(obj).__name__}: {obj}")

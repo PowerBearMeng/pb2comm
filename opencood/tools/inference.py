@@ -25,7 +25,7 @@ def test_parser():
     parser.add_argument('--fusion_method', type=str,
                         default='intermediate',
                         help='no, no_w_uncertainty, late, early or intermediate')
-    parser.add_argument('--save_vis_n', type=int, default=10,
+    parser.add_argument('--save_vis_n', type=int, default=100,
                         help='save how many numbers of visualization result?')
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
@@ -53,7 +53,7 @@ def main():
     print(f"Left hand visualizing: {left_hand}")
 
     print('Dataset Building')
-    opencood_dataset = build_dataset(hypes, visualize=True, train=True)
+    opencood_dataset = build_dataset(hypes, visualize=True, train=False)
     data_loader = DataLoader(opencood_dataset,
                              batch_size=1,
                              num_workers=4,

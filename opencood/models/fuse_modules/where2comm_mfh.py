@@ -254,7 +254,7 @@ class Where2comm(nn.Module):
         pairwise_t_matrix[...,1,0] = pairwise_t_matrix[...,1,0] * W / H
         pairwise_t_matrix[...,0,2] = pairwise_t_matrix[...,0,2] / (self.downsample_rate * self.discrete_ratio * W) * 2
         pairwise_t_matrix[...,1,2] = pairwise_t_matrix[...,1,2] / (self.downsample_rate * self.discrete_ratio * H) * 2
-
+        debug_comm_maps = None
         if self.multi_scale:
             ups = []
             with_resnet = True if hasattr(backbone, 'resnet') else False
@@ -263,14 +263,14 @@ class Where2comm(nn.Module):
             
             for i in range(self.num_levels):
                 x = feats[i] if with_resnet else backbone.blocks[i](x)
-
                 ############ 1. Communication (Mask the features) #########
                 if i==0:
                     if self.communication:
                         batch_confidence_maps = self.regroup(rm, record_len)
-                        _, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, 
+                        batch_masked_maps, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, 
                                                                 pairwise_t_matrix, blind_spot_mask=blind_spot_mask)
                         x = x * communication_masks
+                        debug_comm_maps = batch_masked_maps
                     else:
                         communication_rates = torch.tensor(0).to(x.device)
                 
@@ -345,4 +345,4 @@ class Where2comm(nn.Module):
                 x_fuse.append(self.fuse_modules(neighbor_feature))
             x_fuse = torch.stack(x_fuse)
         
-        return x_fuse, communication_rates, {}
+        return x_fuse, communication_rates, {'masked_comm_maps': debug_comm_maps}

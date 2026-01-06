@@ -33,7 +33,7 @@ def load_json(path):
         data = json.load(f)
     return data
 
-class IntermediateFusionDatasetDAIR(Dataset):
+class IntermediateFusionDatasetCarla(Dataset):
     """
     This class is for intermediate fusion where each vehicle transmit the
     deep features to ego.
@@ -45,9 +45,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
         self.data_augmentor = DataAugmentor(params['data_augment'],
                                             train)
         self.max_cav = 2
-        # if project first, cav's lidar will first be projected to
-        # the ego's coordinate frame. otherwise, the feature will be
-        # projected instead.
         assert 'proj_first' in params['fusion']['args']
         if params['fusion']['args']['proj_first']:
             self.proj_first = True
@@ -106,7 +103,7 @@ class IntermediateFusionDatasetDAIR(Dataset):
         """
         veh_frame_id = self.split_info[idx]
         frame_info = self.co_data[veh_frame_id]
-        system_error_offset = frame_info["system_error_offset"]
+        # system_error_offset = frame_info["system_error_offset"]
         data = OrderedDict()
         data[0] = OrderedDict() # veh-side
         data[0]['ego'] = True
@@ -114,40 +111,41 @@ class IntermediateFusionDatasetDAIR(Dataset):
         data[1]['ego'] = False
  
         data[0]['params'] = OrderedDict()
-        # 对的 frame_info['cooperative_label_path'] = cooperative/label_world/xxxx.json
-        data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))
-        # data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path'].replace('label_world','label_world_backup')))
+        # 对的 coop_label 是 world坐标下的 我应该怎么更改呢？
+        data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))['objects']
 
-        # 下面两个也是对的路径
-        lidar_to_novatel_json_file = load_json(os.path.join(self.root_dir,'vehicle-side/calib/lidar_to_novatel/'+str(veh_frame_id)+'.json'))
-        novatel_to_world_json_file = load_json(os.path.join(self.root_dir,'vehicle-side/calib/novatel_to_world/'+str(veh_frame_id)+'.json'))
-        transformation_matrix = veh_side_rot_and_trans_to_trasnformation_matrix(lidar_to_novatel_json_file,novatel_to_world_json_file)
-        data[0]['params']['lidar_pose'] = tfm_to_pose(transformation_matrix)
+        # 下面 pose 成 xyz rpy 
+        vehicle_pose = load_json(os.path.join(self.root_dir,'vehicle-side/label/lidar/'+str(veh_frame_id)+'.json'))
+        vehicle_sensor_pose = vehicle_pose['sensor_pose']
+        data[0]['params']['lidar_pose'] = [vehicle_sensor_pose['x'], vehicle_sensor_pose['y'], vehicle_sensor_pose['z'],
+                                           vehicle_sensor_pose['roll'], vehicle_sensor_pose['yaw'], vehicle_sensor_pose['pitch']]
         
         ######################## Single View GT ########################
         vehicle_side_path = os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id))
-        data[0]['params']['vehicles_single'] = load_json(vehicle_side_path)
+        data[0]['params']['vehicles_single'] = load_json(vehicle_side_path)['objects']
         ######################## Single View GT ########################
 
         # 应该是这个有问题
-        vehicle_lidar_path = f"{self.root_dir}-{os.path.dirname(frame_info['vehicle_pointcloud_path']).replace('/', '-')}/{os.path.basename(frame_info['vehicle_pointcloud_path'])}"
-        data[0]['lidar_np'], _ = pcd_utils.read_pcd(vehicle_lidar_path)
+        vehicle_lidar_path = os.path.join(self.root_dir, 'vehicle-side/velodyne/{}.bin'.format(veh_frame_id))
+        data[0]['lidar_np'], _ = pcd_utils.read_bin(vehicle_lidar_path)
         if self.clip_pc:
             data[0]['lidar_np'] = data[0]['lidar_np'][data[0]['lidar_np'][:,0]>0]
 
+        #  路侧！
         data[1]['params'] = OrderedDict()
-        inf_frame_id = frame_info['infrastructure_image_path'].split("/")[-1].replace(".jpg", "")
+        # inf_frame_id = frame_info['infrastructure_image_path'].split("/")[-1].replace(".jpg", "")
         data[1]['params']['vehicles'] = [] # we only load cooperative once in veh-side
-        virtuallidar_to_world_json_file = load_json(os.path.join(self.root_dir,'infrastructure-side/calib/virtuallidar_to_world/'+str(inf_frame_id)+'.json'))
-        transformation_matrix1 = inf_side_rot_and_trans_to_trasnformation_matrix(virtuallidar_to_world_json_file,system_error_offset)
-        data[1]['params']['lidar_pose'] = tfm_to_pose(transformation_matrix1)
-
+        infra_pose = load_json(os.path.join(self.root_dir,'infrastructure-side/label/virtuallidar/'+str(veh_frame_id)+'.json'))
+        infra_sensor_pose = infra_pose['sensor_pose']
+        data[1]['params']['lidar_pose'] = [infra_sensor_pose['x'], infra_sensor_pose['y'], infra_sensor_pose['z'],
+                                           infra_sensor_pose['roll'], infra_sensor_pose['yaw'], infra_sensor_pose['pitch']]
+        
         ######################## Single View GT ########################
-        infra_side_path = os.path.join(self.root_dir, 'infrastructure-side/label/virtuallidar/{}.json'.format(inf_frame_id))
-        data[1]['params']['vehicles_single'] = load_json(infra_side_path)
+        infra_side_path = os.path.join(self.root_dir, 'infrastructure-side/label/virtuallidar/{}.json'.format(veh_frame_id))
+        data[1]['params']['vehicles_single'] = load_json(infra_side_path)['objects']
         ######################## Single View GT ########################
-        infra_lidar_path = f"{self.root_dir}-{os.path.dirname(frame_info['infrastructure_pointcloud_path']).replace('/', '-')}/{os.path.basename(frame_info['infrastructure_pointcloud_path'])}"
-        data[1]['lidar_np'], _ = pcd_utils.read_pcd(infra_lidar_path)
+        infra_lidar_path = os.path.join(self.root_dir, 'infrastructure-side/velodyne/{}.bin'.format(veh_frame_id))
+        data[1]['lidar_np'], _ = pcd_utils.read_bin(infra_lidar_path)
         return data
 
     def __len__(self):
@@ -181,7 +179,7 @@ class IntermediateFusionDatasetDAIR(Dataset):
             Length is number of bbx in current sample.
         """
 
-        return self.post_processor.generate_object_center_dairv2x(cav_contents,
+        return self.post_processor.generate_object_center_carla(cav_contents,
                                                         reference_lidar_pose, return_visible_mask)
         
     def generate_object_center_single(self,
@@ -218,7 +216,6 @@ class IntermediateFusionDatasetDAIR(Dataset):
         transformation_matrix_clean = \
             x1_to_x2(selected_cav_base['params']['lidar_pose_clean'],
                      ego_pose_clean)
-
         # retrieve objects under ego coordinates
         # this is used to generate accurate GT bounding box.
         object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center([selected_cav_base],

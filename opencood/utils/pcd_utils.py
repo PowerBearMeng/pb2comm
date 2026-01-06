@@ -213,3 +213,20 @@ def read_pcd(pcd_path):
     del_index = np.where(np.isnan(pcd_np_points))[0]
     pcd_np_points = np.delete(pcd_np_points, del_index, axis=0)
     return pcd_np_points, time
+
+def read_bin(bin_path):
+    """
+    读取 bin 文件 (x, y, z, intensity)
+    """
+    points = np.fromfile(bin_path, dtype=np.float32)
+    try:
+        points = points.reshape(-1, 4)
+    except ValueError:
+        points = points.reshape(-1, 3)
+        points = np.hstack((points, np.zeros((points.shape[0], 1), dtype=points.dtype)))
+        # raise ValueError(f"Warning: Point cloud shape mismatch in {bin_path}. Trying reshape(-1, 3)...")
+    # 3. 处理 Intensity (强度) bin 文件已经归一化到 [0, 1]
+    mask = ~np.isnan(points).any(axis=1)
+    points = points[mask]
+    time = None
+    return points, time

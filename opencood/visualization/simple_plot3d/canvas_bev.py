@@ -500,6 +500,28 @@ class Canvas_BEV_heading_right(object):
                                         .tolist()),
                                        color=color,
                                        thickness=box_line_thickness)
+                # ================= [新增] 画红色箭头 =================
+            # 计算框的几何中心
+            center_x = int(np.mean(curr_box_corners[:, 0]))
+            center_y = int(np.mean(curr_box_corners[:, 1]))
+            
+            # 计算前脸中心 (索引0和1是前脸的两个角点)
+            front_x = int((curr_box_corners[0][0] + curr_box_corners[1][0]) / 2)
+            front_y = int((curr_box_corners[0][1] + curr_box_corners[1][1]) / 2)
+            
+            # 设置箭头颜色 (RGB: 255, 0, 0 为红色)
+            # 注意：如果 simple_vis 使用 plt.imshow，这里是 RGB；如果是 cv2.imshow，则是 BGR
+            arrow_color = (255, 0, 0) 
+
+            # 画箭头
+            self.canvas = cv2.arrowedLine(self.canvas, 
+                                          (center_x, center_y),  # 起点
+                                          (front_x, front_y),    # 终点
+                                          arrow_color, 
+                                          thickness=max(1, box_line_thickness), 
+                                          tipLength=0.3)         # 箭头尖端的比例
+            # ====================================================
+            
             if texts is not None:
                 self.canvas = cv2.putText(self.canvas,
                                           str(texts[i]),

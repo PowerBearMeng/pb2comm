@@ -76,7 +76,6 @@ def caluclate_tp_fp(det_boxes, det_score, gt_boxes, result_stat, iou_thresh):
         det_boxes = common_utils.torch_tensor_to_numpy(det_boxes)
         det_score = common_utils.torch_tensor_to_numpy(det_score)
         gt_boxes = common_utils.torch_tensor_to_numpy(gt_boxes)
-
         # sort the prediction bounding box by score
         score_order_descend = np.argsort(-det_score)
         det_polygon_list = list(common_utils.convert_format(det_boxes))
