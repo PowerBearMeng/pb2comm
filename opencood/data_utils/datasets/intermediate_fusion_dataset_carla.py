@@ -119,7 +119,6 @@ class IntermediateFusionDatasetCarla(Dataset):
         vehicle_sensor_pose = vehicle_pose['sensor_pose']
         data[0]['params']['lidar_pose'] = [vehicle_sensor_pose['x'], vehicle_sensor_pose['y'], vehicle_sensor_pose['z'],
                                            vehicle_sensor_pose['roll'], vehicle_sensor_pose['yaw'], vehicle_sensor_pose['pitch']]
-        
         ######################## Single View GT ########################
         vehicle_side_path = os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id))
         data[0]['params']['vehicles_single'] = load_json(vehicle_side_path)['objects']
@@ -451,7 +450,6 @@ class IntermediateFusionDatasetCarla(Dataset):
                 gt_box_center=object_bbx_center,
                 anchors=anchor_box,
                 mask=mask)
-        
         label_dict_single_v = \
             self.post_processor.generate_label(
                 gt_box_center=object_bbx_center_single_v,

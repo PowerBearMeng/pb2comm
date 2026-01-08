@@ -285,7 +285,6 @@ class VoxelPostprocessor(BasePostprocessor):
             prob = output_dict[cav_id]['psm']
             prob = F.sigmoid(prob.permute(0, 2, 3, 1))
             prob = prob.reshape(1, -1)
-
             # regression map
             reg = output_dict[cav_id]['rm']
 

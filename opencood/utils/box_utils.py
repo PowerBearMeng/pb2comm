@@ -1096,8 +1096,7 @@ def project_world_objects_dairv2x(object_list,
             dim = object_content['3d_dimensions']
             rot = object_content['rotation'] 
             
-            # 2. 构造 (1, 7) 的数组: [x, y, z, h, w, l, yaw]
-            # 注意：这里的顺序必须配合 order 参数，如果是 'hwl'，顺序就是 h,w,l
+
             if order == 'hwl':
                 box_center = np.array([[loc['x'], loc['y'], loc['z'], 
                                         dim['h'], dim['w'], dim['l'], rot]])
@@ -1162,7 +1161,6 @@ def project_world_objects_carla(object_list,
             loc = object_content['3d_location'] 
             dim = object_content['3d_dimensions']
             rot = object_content['rotation'] 
-            
             # 2. 构造 (1, 7) 的数组: [x, y, z, h, w, l, yaw]
             # 注意：这里的顺序必须配合 order 参数，如果是 'hwl'，顺序就是 h,w,l
             if order == 'hwl':
