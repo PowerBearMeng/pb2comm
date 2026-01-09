@@ -290,6 +290,11 @@ class VoxelPostprocessor(BasePostprocessor):
 
             # convert regression map back to bounding box
             batch_box3d = self.delta_to_boxes3d(reg, anchor_box)
+            # ================== 添加修正代码 START ==================
+            # 强制将预测出的角度旋转 90 度 (pi/2)
+            # 如果旋转方向反了，尝试改为 -np.pi / 2
+            batch_box3d[..., 6] += np.pi / 2 
+            # ================== 添加修正代码 END ==================
             mask = \
                 torch.gt(prob, self.params['target_args']['score_threshold'])
             mask = mask.view(1, -1)

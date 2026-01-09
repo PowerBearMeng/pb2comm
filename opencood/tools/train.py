@@ -5,7 +5,7 @@
 # v2x-vit python opencood/tools/train.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_v2xvit.yaml
 # early fusion python opencood/tools/train.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_early.yaml
 # single python opencood/tools/train.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_single.yaml
-
+# python opencood/tools/train.py --hypes_yaml opencood/hypes_yaml/carla/carla_where2comm_max_multiscale_resnet.yaml
 # ssh GIT_SSH_COMMAND="ssh -i ~/.ssh/github" git push -u origin main
 import argparse
 import os

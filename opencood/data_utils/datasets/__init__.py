@@ -8,6 +8,7 @@ from opencood.data_utils.datasets.late_fusion_dataset_dair import LateFusionData
 from opencood.data_utils.datasets.intermediate_fusion_dataset_seq import IntermediateFusionDatasetSeq
 from opencood.data_utils.datasets.intermediate_fusion_dataset_test import IntermediateFusionDatasetTest
 from opencood.data_utils.datasets.intermediate_fusion_dataset_carla import IntermediateFusionDatasetCarla
+from opencood.data_utils.datasets.late_fusion_dataset_carla import LateFusionDatasetCarla
 __all__ = {
     'EarlyFusionDatasetDAIR': EarlyFusionDatasetDAIR,
     'IntermediateFusionDatasetDAIR': IntermediateFusionDatasetDAIR,
@@ -15,6 +16,7 @@ __all__ = {
     'IntermediateFusionDatasetSeq': IntermediateFusionDatasetSeq,
     'IntermediateFusionDatasetTest': IntermediateFusionDatasetTest,
     'IntermediateFusionDatasetCarla': IntermediateFusionDatasetCarla,
+    'LateFusionDatasetCarla': LateFusionDatasetCarla,
 }
 
 # the final range for evaluation

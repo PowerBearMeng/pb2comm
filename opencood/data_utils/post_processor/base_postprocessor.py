@@ -412,6 +412,55 @@ class BasePostprocessor(object):
 
         return object_np, mask, object_ids
     
+    def generate_object_center_carla_late_fusion(self,
+                               cav_contents):
+        """
+        Retrieve all objects in a format of (n, 7), where 7 represents
+        x, y, z, l, w, h, yaw or x, y, z, h, w, l, yaw.
+
+        Parameters
+        ----------
+        cav_contents : list
+            List of dictionary, save all cavs' information.
+
+        reference_lidar_pose : list
+            The final target lidar pose with length 6.
+
+        Returns
+        -------
+        object_np : np.ndarray
+            Shape is (max_num, 7).
+        mask : np.ndarray
+            Shape is (max_num,).
+        object_ids : list
+            Length is number of bbx in current sample.
+        """
+
+        # tmp_object_dict = {}
+        tmp_object_list = []
+        cav_content = cav_contents[0]
+        if 'vehicles_single' in cav_content['params']:
+            tmp_object_list = cav_content['params']['vehicles_single']
+        else:
+            tmp_object_list = cav_content['params']['vehicles'] # ego coord.
+
+        output_dict = {}
+        filter_range = self.params['anchor_args']['cav_lidar_range']
+        box_utils.load_single_objects_dairv2x(tmp_object_list,
+                                        output_dict,
+                                        filter_range,
+                                        self.params['order'])
+
+        object_np = np.zeros((self.params['max_num'], 7))
+        mask = np.zeros(self.params['max_num'])
+        object_ids = []
+
+        for i, (object_id, object_bbx) in enumerate(output_dict.items()):
+            object_np[i] = object_bbx[0, :]
+            mask[i] = 1
+            object_ids.append(object_id)
+
+        return object_np, mask, object_ids
     def generate_object_center_carla(self,
                                cav_contents,
                                reference_lidar_pose, return_visible_mask=False):

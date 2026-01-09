@@ -1,8 +1,8 @@
 name: carla_where2comm_max_multiscale_resnet
-data_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-test_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
+test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 
 noise_setting:
   add_noise: False
@@ -17,8 +17,8 @@ noise_setting:
 
 yaml_parser: "load_point_pillar_params"
 train_params:
-  batch_size: &batch_size 1
-  epoches: 20
+  batch_size: &batch_size 2
+  epoches: 10
   eval_freq: 5
   save_freq: 2
   max_cav: &max_cav 2
@@ -35,12 +35,12 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.275, 0.15, 7]  # xmax - xmin / 400 
+    voxel_size: &voxel_size [0.44, 0.35, 10]  # xmax - xmin / 400 
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
-  cav_lidar_range: &cav_lidar [-55, -30, -3, 55, 30, 4]
+  cav_lidar_range: &cav_lidar [-88, -70, -4, 88, 70, 6]
 
 data_augment:
   - NAME: random_world_flip
@@ -58,9 +58,9 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.6
-    w: 1.92
-    h: 1.5
+    l: 4.8
+    w: 1.96
+    h: 1.56
     r: [0, 90]  
     feature_stride: 2
     num: &achor_num 2
@@ -139,7 +139,7 @@ loss:
   core_method: point_pillar_loss
   args:
     cls_weight: 1.0
-    reg: 2.0
+    reg: 2.5
 
 optimizer:
   core_method: Adam

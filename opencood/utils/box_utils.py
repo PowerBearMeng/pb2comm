@@ -1172,8 +1172,16 @@ def project_world_objects_carla(object_list,
             
             # 3. 调用现成函数生成 8 个点
             corners_world = boxes_to_corners_3d(box_center, order)[0] # 取出第0个，得到 (8, 3)
-        # ================= 修改结束 =================
-
+        # # ================= 修改结束 =================
+        # # 🔍 添加调试
+        # print(f"\n==== Object {i} ====")
+        # print(f"box_center: {box_center}")
+        # print(f"corners shape: {corners_world.shape}")
+        # print(f"corners[0] (front-right-bottom): {corners_world[0]}")
+        # print(f"corners[2] (back-left-bottom): {corners_world[2]}")
+        # print(f"x_range: [{corners_world[: , 0].min():.2f}, {corners_world[:, 0].max():.2f}]")
+        # print(f"y_range: [{corners_world[:, 1].min():.2f}, {corners_world[: , 1].max():.2f}]")
+        
         # corners_world_homo = np.pad(corners_world, ((0,0), (0,1)), constant_values=1) # [8, 4]
         # corners_lidar = (world_to_lidar @ corners_world_homo.T).T 
         corners_lidar = corners_world
