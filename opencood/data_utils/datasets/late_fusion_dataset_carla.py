@@ -145,6 +145,17 @@ class LateFusionDatasetCarla(BaseDataset):
     
         infra_lidar_path = os.path.join(self.root_dir, 'infrastructure-side/velodyne/{}.bin'.format(veh_frame_id))
         data[1]['lidar_np'], _ = pcd_utils.read_bin(infra_lidar_path)
+        
+        # data[1]['params']['vehicles'] = load_json(os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))['objects']
+
+        # vehicle_pose = load_json(os.path.join(self.root_dir,'vehicle-side/label/lidar/'+str(veh_frame_id)+'.json'))
+        # vehicle_sensor_pose = vehicle_pose['sensor_pose']
+        # data[1]['params']['lidar_pose'] = [vehicle_sensor_pose['x'], vehicle_sensor_pose['y'], vehicle_sensor_pose['z'],
+        #                                    vehicle_sensor_pose['roll'], vehicle_sensor_pose['yaw'], vehicle_sensor_pose['pitch']]
+
+        # vehicle_lidar_path = os.path.join(self.root_dir, 'vehicle-side/velodyne/{}.bin'.format(veh_frame_id))
+        # data[1]['lidar_np'], _ = pcd_utils.read_bin(vehicle_lidar_path)
+
         return data
 
     def get_item_single_car(self, selected_cav_base):
@@ -171,7 +182,6 @@ class LateFusionDatasetCarla(BaseDataset):
                                             'cav_lidar_range'])
         # remove points that hit ego vehicle
         lidar_np = mask_ego_points(lidar_np)
-
         # generate the bounding box(n, 7) under the cav's space
         object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center([selected_cav_base],
                                                     selected_cav_base[
@@ -179,9 +189,8 @@ class LateFusionDatasetCarla(BaseDataset):
                                                            'lidar_pose_clean'])
 
         # data augmentation
-        lidar_np, object_bbx_center, object_bbx_mask = \
-            self.augment(lidar_np, object_bbx_center, object_bbx_mask)
-
+        # lidar_np, object_bbx_center, object_bbx_mask = \
+        #     self.augment(lidar_np, object_bbx_center, object_bbx_mask)
         if self.visualize:
             selected_cav_processed.update({'origin_lidar': lidar_np})
 
@@ -243,14 +252,13 @@ class LateFusionDatasetCarla(BaseDataset):
         # during training, we return a random cav's data
         # only one vehicle is in processed_data_dict
         if not self.visualize:
-            selected_cav_id, selected_cav_base = \
-                random.choice(list(base_data_dict.items()))
             # selected_cav_id, selected_cav_base = \
-            #     list(base_data_dict.items())[0]
+            #     random.choice(list(base_data_dict.items()))
+            selected_cav_id, selected_cav_base = \
+                list(base_data_dict.items())[0]
         else:
             selected_cav_id, selected_cav_base = \
                 list(base_data_dict.items())[0]
-
         selected_cav_processed = self.get_item_single_car(selected_cav_base)
         processed_data_dict.update({'ego': selected_cav_processed})
 
@@ -356,7 +364,6 @@ class LateFusionDatasetCarla(BaseDataset):
                 origin_lidar = [cav_content['origin_lidar']]
 
                 if (self.params['only_vis_ego'] is False) or (cav_id=='ego'):
-                    print(cav_id)
                     import copy
                     projected_lidar = copy.deepcopy(cav_content['origin_lidar'])
                     projected_lidar[:, :3] = \
@@ -466,7 +473,6 @@ class LateFusionDatasetCarla(BaseDataset):
                     'object_bbx_center': object_bbx_center,
                     'object_bbx_mask': object_bbx_mask}
         tmp_dict = self.data_augmentor.forward(tmp_dict)
-
         lidar_np = tmp_dict['lidar_np']
         object_bbx_center = tmp_dict['object_bbx_center']
         object_bbx_mask = tmp_dict['object_bbx_mask']

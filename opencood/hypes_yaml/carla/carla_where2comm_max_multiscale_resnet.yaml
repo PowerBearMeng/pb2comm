@@ -4,6 +4,11 @@ root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
 validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 
+# data_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure"
+# root_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+# validate_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+# test_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+
 noise_setting:
   add_noise: False
   args: 
@@ -18,8 +23,8 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
-  epoches: 10
-  eval_freq: 5
+  epoches: 50
+  eval_freq: 2
   save_freq: 2
   max_cav: &max_cav 2
 
@@ -35,12 +40,14 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.44, 0.35, 10]  # xmax - xmin / 400 
+    voxel_size: &voxel_size [0.4, 0.3, 7] #480 400
+    # [0.44, 0.10, 10]  # xmax - xmin / 400 
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
-  cav_lidar_range: &cav_lidar [-88, -70, -4, 88, 70, 6]
+  cav_lidar_range: &cav_lidar [-80, -60, -3, 80, 60, 4]
+  # [-56, -30, -2, 56, 30, 3] demo 
 
 data_augment:
   - NAME: random_world_flip
@@ -58,16 +65,19 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.8
-    w: 1.96
-    h: 1.56
+    l: 4.76
+    w: 1.95
+    h: 1.55
+    # l: 4.5
+    # w: 1.9
+    # h: 1.5
     r: [0, 90]  
     feature_stride: 2
     num: &achor_num 2
   target_args:
     pos_threshold: 0.6
     neg_threshold: 0.45
-    score_threshold: 0.1
+    score_threshold: 0.3
   order: 'hwl' # hwl or lwh
   max_num: 100 # maximum number of objects in a single frame. use this number to make sure different frames has the same dimension in the same batch
   nms_thresh: 0.15
@@ -139,7 +149,7 @@ loss:
   core_method: point_pillar_loss
   args:
     cls_weight: 1.0
-    reg: 2.5
+    reg: 2.0
 
 optimizer:
   core_method: Adam

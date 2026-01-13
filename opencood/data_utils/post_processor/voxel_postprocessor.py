@@ -60,7 +60,8 @@ class VoxelPostprocessor(BasePostprocessor):
         cx, cy = np.meshgrid(x, y)
         cx = np.tile(cx[..., np.newaxis], self.anchor_num) # center
         cy = np.tile(cy[..., np.newaxis], self.anchor_num)
-        cz = np.ones_like(cx) * -1.0
+        #  这个是很关键的，z轴中心点统一
+        cz = np.ones_like(cx) * 0.83
 
         w = np.ones_like(cx) * w
         l = np.ones_like(cx) * l
@@ -164,6 +165,39 @@ class VoxelPostprocessor(BasePostprocessor):
         id_pos_gt = id_pos_gt[index]
         id_neg.sort()
 
+# ================== 【新增 3D Debug 代码】 START ==================
+        # if len(id_pos) > 0:
+        #     # 拿出匹配上的 Anchor 和对应的 GT
+        #     matched_anchors = anchors[id_pos]       # (N, 7) [x, y, z, h, w, l, r]
+        #     matched_gts = gt_box_center[id_pos_gt]  # (N, 7)
+            
+        #     # 1. 看 Z 轴差距
+        #     z_diff = matched_gts[:, 2] - matched_anchors[:, 2]
+            
+        #     # 2. 看垂直方向是否有重叠 (Vertical Overlap)
+        #     # Anchor 的顶和底
+        #     a_top = matched_anchors[:, 2] + matched_anchors[:, 3] / 2  # h 在第3位(索引3) 如果是 hwl
+        #     a_bot = matched_anchors[:, 2] - matched_anchors[:, 3] / 2
+        #     # GT 的顶和底
+        #     g_top = matched_gts[:, 2] + matched_gts[:, 3] / 2
+        #     g_bot = matched_gts[:, 2] - matched_gts[:, 3] / 2
+            
+        #     # 计算重叠高度
+        #     inter_top = np.minimum(a_top, g_top)
+        #     inter_bot = np.maximum(a_bot, g_bot)
+        #     overlap_h = np.maximum(0, inter_top - inter_bot)
+        #     valid_3d_pairs = np.sum(overlap_h > 0)
+
+        #     print(f"\n[3D Deep Check] 基于 2D IoU 匹配到了 {len(id_pos)} 个 Anchors")
+        #     print(f"  -> Anchor Z (mean): {np.mean(matched_anchors[:, 2]):.2f} | GT Z (mean): {np.mean(matched_gts[:, 2]):.2f}")
+        #     print(f"  -> Z轴平均偏差 (GT - Anchor): {np.mean(z_diff):.4f} 米")
+        #     print(f"  -> 3D 垂直有重叠的比例: {valid_3d_pairs} / {len(id_pos)}")
+            
+        #     if valid_3d_pairs == 0:
+        #         print("  🚨 严重警告: 垂直方向完全没重叠！3D IoU 实际上是 0！")
+        #         print("     虽然 Loss 能降下去(网络在硬背偏移量)，但 Anchor 设置极度不合理。")
+        # # ================== 【新增 3D Debug 代码】 END ==================
+
         # cal the target and set the equal one
         index_x, index_y, index_z = np.unravel_index(
             id_pos, (*feature_map_shape, self.anchor_num))
@@ -201,7 +235,14 @@ class VoxelPostprocessor(BasePostprocessor):
         label_dict = {'pos_equal_one': pos_equal_one,
                       'neg_equal_one': neg_equal_one,
                       'targets': targets}
-
+        # # [DEBUG 代码]
+        # print("here am i?")
+        # num_pos = np.sum(pos_equal_one)
+        # if num_pos == 0:
+        #     print("!!!!!!!!!! WARNING: No Positive Anchors Found! (IoU mismatch) !!!!!!!!!!")
+        #     print(f"GT Range: {gt_box_center[:, :3].min(0)} ~ {gt_box_center[:, :3].max(0)}")
+        # else:
+        #     print(f"DEBUG: Found {num_pos} positive anchors.")
         return label_dict
 
     @staticmethod
@@ -290,11 +331,6 @@ class VoxelPostprocessor(BasePostprocessor):
 
             # convert regression map back to bounding box
             batch_box3d = self.delta_to_boxes3d(reg, anchor_box)
-            # ================== 添加修正代码 START ==================
-            # 强制将预测出的角度旋转 90 度 (pi/2)
-            # 如果旋转方向反了，尝试改为 -np.pi / 2
-            batch_box3d[..., 6] += np.pi / 2 
-            # ================== 添加修正代码 END ==================
             mask = \
                 torch.gt(prob, self.params['target_args']['score_threshold'])
             mask = mask.view(1, -1)

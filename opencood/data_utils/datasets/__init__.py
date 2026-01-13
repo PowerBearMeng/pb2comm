@@ -3,22 +3,21 @@
 # License: TDG-Attribution-NonCommercial-NoDistrib
 
 from opencood.data_utils.datasets.early_fusion_dataset_dair import EarlyFusionDatasetDAIR
-from opencood.data_utils.datasets.intermediate_fusion_dataset_dair import IntermediateFusionDatasetDAIR
-from opencood.data_utils.datasets.late_fusion_dataset_dair import LateFusionDatasetDAIR
-from opencood.data_utils.datasets.intermediate_fusion_dataset_seq import IntermediateFusionDatasetSeq
+# from opencood.data_utils.dair_datasets.intermediate_fusion_dataset_dair import IntermediateFusionDatasetDAIR
+# from opencood.data_utils.dair_datasets.late_fusion_dataset_dair import LateFusionDatasetDAIR
+# from opencood.data_utils.dair_datasets.intermediate_fusion_dataset_seq import IntermediateFusionDatasetSeq
 from opencood.data_utils.datasets.intermediate_fusion_dataset_test import IntermediateFusionDatasetTest
 from opencood.data_utils.datasets.intermediate_fusion_dataset_carla import IntermediateFusionDatasetCarla
 from opencood.data_utils.datasets.late_fusion_dataset_carla import LateFusionDatasetCarla
 __all__ = {
     'EarlyFusionDatasetDAIR': EarlyFusionDatasetDAIR,
-    'IntermediateFusionDatasetDAIR': IntermediateFusionDatasetDAIR,
-    'LateFusionDatasetDAIR': LateFusionDatasetDAIR,
-    'IntermediateFusionDatasetSeq': IntermediateFusionDatasetSeq,
     'IntermediateFusionDatasetTest': IntermediateFusionDatasetTest,
     'IntermediateFusionDatasetCarla': IntermediateFusionDatasetCarla,
     'LateFusionDatasetCarla': LateFusionDatasetCarla,
 }
-
+    # 'IntermediateFusionDatasetDAIR': IntermediateFusionDatasetDAIR,
+    # 'LateFusionDatasetDAIR': LateFusionDatasetDAIR,
+    # 'IntermediateFusionDatasetSeq': IntermediateFusionDatasetSeq,
 # the final range for evaluation
 GT_RANGE_OPV2V = [-140, -40, -3, 140, 40, 1]
 GT_RANGE_V2XSIM = [-32, -32, -3, 32, 32, 1]

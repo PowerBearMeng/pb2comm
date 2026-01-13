@@ -416,7 +416,18 @@ def mask_boxes_outside_range_numpy(boxes, limit_range, order,
     mask = ((new_boxes >= limit_range[0:3]) &
             (new_boxes <= limit_range[3:6])).all(axis=2)
     mask = mask.sum(axis=1) >= min_num_corners  # (N)
-
+    # # ==================== 【修改开始】 ====================
+    # total_num = boxes.shape[0]
+    # keep_num = np.sum(mask) # mask 是布尔数组，sum 会计算 True 的个数
+    # removed_num = total_num - keep_num
+    
+    # if removed_num > 0:
+    #     print(f"[Box Filter] 总框数: {total_num} -> 保留: {keep_num} (删除了 {removed_num} 个)")
+    #     # 如果你想知道被删掉的框的中心点大致在哪，可以把下面这行取消注释：
+    #     print(f"    被删框中心(前3个): {boxes[~mask][:3, :3]}")
+    # # ==================== 【修改结束】 ====================
+    # else:
+    #     print(f"[Box Filter] 总框数: {total_num} -> 保留: {keep_num} (无框被删除)")
     if return_mask:
         return boxes[mask], mask
     return boxes[mask]
@@ -878,8 +889,8 @@ def remove_bbx_abnormal_z(bbx_3d):
     """
     bbx_z_min = torch.min(bbx_3d[:, :, 2], dim=1)[0]
     bbx_z_max = torch.max(bbx_3d[:, :, 2], dim=1)[0]
-    index = torch.logical_and(bbx_z_min >= -3, bbx_z_max <= 1)
-
+    index = torch.logical_and(bbx_z_min >= -3, bbx_z_max <= 4)
+    # print("remove_bbx_abnormal_z: ", torch.sum(~index).item())
     return index
 
 
@@ -1231,7 +1242,6 @@ def load_single_objects_dairv2x(object_list,
         
         bbx_lidar = [x,y,z,h,w,l,rotation] if order=="hwl" else [x,y,z,l,w,h,rotation] # suppose order is in ['hwl', 'lwh']
         bbx_lidar = np.array(bbx_lidar).reshape(1,-1) # [1,7]
-
         bbx_lidar = mask_boxes_outside_range_numpy(bbx_lidar, lidar_range_z_larger, order)
         if bbx_lidar.shape[0] > 0:
             if object_content['type'] == "Car" or \

@@ -25,7 +25,7 @@ def test_parser():
     parser.add_argument('--fusion_method', type=str,
                         default='intermediate',
                         help='no, no_w_uncertainty, late, early or intermediate')
-    parser.add_argument('--save_vis_n', type=int, default=100,
+    parser.add_argument('--save_vis_n', type=int, default=10,
                         help='save how many numbers of visualization result?')
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
@@ -90,11 +90,6 @@ def main():
     for i, batch_data in tqdm(enumerate(data_loader)):
         with torch.no_grad():
             batch_data = train_utils.to_device(batch_data, device)
-            # =================== 计时开始 ===================
-            if torch.cuda.is_available():
-                torch.cuda.synchronize() # 等待之前所有GPU操作完成
-            start_time = time.time()
-            # ===============================================
             if opt.fusion_method == 'late':
                 pred_box_tensor, pred_score, gt_box_tensor = \
                     inference_utils.inference_late_fusion(batch_data,
@@ -133,15 +128,6 @@ def main():
             else:
                 raise NotImplementedError('Only early, late and intermediate, no, intermediate_with_comm'
                                           'fusion modes are supported.')
-            # =================== 计时结束 ===================
-            if torch.cuda.is_available():
-                torch.cuda.synchronize() # 等待模型推理完成
-            end_time = time.time()
-            
-            # 记录这一帧的时间 (跳过前5帧，因为有GPU预热 Warm-up)
-            if i >= 5:
-                time_stats.append(end_time - start_time)
-            # ===============================================
             if pred_box_tensor is None:
                 continue
 

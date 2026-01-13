@@ -37,7 +37,6 @@ def inference_late_fusion(batch_data, model, dataset):
     pred_box_tensor, pred_score, gt_box_tensor = \
         dataset.post_process(batch_data,
                              output_dict)
-
     return pred_box_tensor, pred_score, gt_box_tensor
 
 def inference_no_fusion(batch_data, model, dataset):

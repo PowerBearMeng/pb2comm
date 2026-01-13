@@ -1,10 +1,15 @@
 # use it for late fusion / no fusion
 
-name: dair_single_late
-data_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-test_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+name: carla_single_late
+# data_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure"
+# root_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+# validate_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+# test_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+
+data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
+test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 
 noise_setting:
   add_noise: false
@@ -15,10 +20,10 @@ only_vis_ego: False
 
 yaml_parser: "load_point_pillar_params"
 train_params:
-  batch_size: &batch_size 8
-  epoches: 30
-  eval_freq: 2
-  save_freq: 2
+  batch_size: &batch_size 4
+  epoches: 51
+  eval_freq: 10
+  save_freq: 10
   max_cav: &max_cav 2
 
 
@@ -31,14 +36,14 @@ fusion:
 # preprocess-related
 preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
-  core_method: 'VoxelPostprocessor'
+  core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.275, 0.15, 7]
+    voxel_size: &voxel_size [0.4, 0.3, 7] 
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
-  cav_lidar_range: &cav_lidar  [-55, -30, -3, 55, 30, 4]
+  cav_lidar_range: &cav_lidar  [-80, -60, -3, 80, 60, 4]
 
 data_augment:
   - NAME: random_world_flip
@@ -59,9 +64,9 @@ postprocess:
     num_bins: 2
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.6
-    w: 1.92
-    h: 1.5
+    l: 4.76
+    w: 1.95
+    h: 1.55
     r: &anchor_yaw [0, 90]
     feature_stride: 2
     num: &achor_num 2

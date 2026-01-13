@@ -111,7 +111,6 @@ class IntermediateFusionDatasetCarla(Dataset):
         data[1]['ego'] = False
  
         data[0]['params'] = OrderedDict()
-        # 对的 coop_label 是 world坐标下的 我应该怎么更改呢？
         data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))['objects']
 
         # 下面 pose 成 xyz rpy 
@@ -271,7 +270,6 @@ class IntermediateFusionDatasetCarla(Dataset):
 
         return selected_cav_processed
 
-    # 没用上
     def augment(self, lidar_np, object_bbx_center, object_bbx_mask):
         """
         Given the raw point cloud, augment by flipping and rotation.
