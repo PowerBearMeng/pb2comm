@@ -14,13 +14,14 @@ from opencood.models.sub_modules.naive_compress import NaiveCompressor
 from opencood.models.sub_modules.dcn_net import DCNNet
 # from opencood.models.fuse_modules.where2comm import Where2comm
 from opencood.utils.blind_spot_utils import get_blind_spot_mask
-from opencood.models.fuse_modules.where2comm_mfh import Where2comm
+from opencood.models.fuse_modules.where2comm_blind import Where2comm
 import torch
 
-class PointPillarWhere2commmfh(nn.Module):
+class PointPillarWhere2commBlind(nn.Module):
     def __init__(self, args):
-        super(PointPillarWhere2commmfh, self).__init__()
+        super(PointPillarWhere2commBlind, self).__init__()
         self.lidar_range = args['lidar_range']
+        self.voxel_size = args['voxel_size']
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],
                                     num_point_features=4,
@@ -159,7 +160,7 @@ class PointPillarWhere2commmfh(nn.Module):
                     ego_pose=(0,0,0), 
                     lidar_range=gt_range, 
                     target_feat_shape=(H, W),
-                    voxel_size=0.4
+                    voxel_size=self.voxel_size
                 )
                 
                 mask_tensor = torch.from_numpy(mask_np).to(spatial_features_2d.device).float()
@@ -195,9 +196,6 @@ class PointPillarWhere2commmfh(nn.Module):
                        'rm': rm
                        }
         
-        # =======================================================
-        # 【恢复被我误删的逻辑】: 这里的代码必须保留！
-        # =======================================================
         output_dict.update(result_dict)
         
         split_psm_single = self.regroup(psm_single, record_len)
@@ -207,21 +205,15 @@ class PointPillarWhere2commmfh(nn.Module):
         rm_single_v = []
         rm_single_i = []
         
-        # 这里的 try-except 或者 len 判断是为了防止有些数据只有单车没有邻居
-        # 但原来的代码逻辑是这样的：
+
         for b in range(len(split_psm_single)):
-            # 假设每个场景至少有1个Ego和1个Infra (record_len >= 2)
-            # 如果实际数据中有些只有Ego，这里可能会越界，保持你原有逻辑即可
             if split_psm_single[b].shape[0] > 1:
                 psm_single_v.append(split_psm_single[b][0:1])
                 psm_single_i.append(split_psm_single[b][1:2])
                 rm_single_v.append(split_rm_single[b][0:1])
                 rm_single_i.append(split_rm_single[b][1:2])
             else:
-                # 处理只有单车的情况，或者根据需要填充
                 psm_single_v.append(split_psm_single[b][0:1])
-                # 如果没有 infra，可能需要 append 一个全零或者处理方式
-                # 暂时保持你原代码的假设 (默认有 infra)
         
         if len(psm_single_v) > 0:
             psm_single_v = torch.cat(psm_single_v, dim=0)
