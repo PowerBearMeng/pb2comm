@@ -1,68 +1,178 @@
+# opencood/models/point_pillar_ffnet.py
 import torch
 import torch.nn as nn
-from opencood.models.sub_modules.pillar_vfe import PillarVFE
-from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
-from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
-# 引入我们之前定义的 FlowGenerator (即 FeatureFlowNet 里的 workers)
-from opencood.models.sub_modules.flow_net import FeatureFlowNet as FlowGenerator
+from opencood.models.point_pillar_where2comm import PointPillarWhere2comm
+from opencood.models.sub_modules.flow_net import FlowGenerator
 
-class PointPillarFFNet(nn.Module):
+class PointPillarFFNet(PointPillarWhere2comm):
     def __init__(self, args):
-        super(PointPillarFFNet, self).__init__()
-        
-        self.pillar_vfe = PillarVFE(args['pillar_vfe_args'], train=True, preserve_keypoint=False)
-        self.scatter = PointPillarScatter(args['point_pillar_scatter_args'])
+        super(PointPillarFFNet, self).__init__(args)
+        # 初始化 FlowGenerator
+        self.flow_generator = FlowGenerator(args['flow_generator_args'])
+        if args['backbone_fix']:
+            self.backbone_fix()
+    def backbone_fix(self):
+        """
+        Fix the parameters of backbone during finetune on timedelay。
+        """
+        for p in self.pillar_vfe.parameters():
+            p.requires_grad = False
 
-        self.backbone = BaseBEVBackbone(args['base_bev_backbone_args'], 256)
-        
-        # 关键一步：冻结老师网络！
+        for p in self.scatter.parameters():
+            p.requires_grad = False
+
         for p in self.backbone.parameters():
             p.requires_grad = False
+
+        if self.compression:
+            for p in self.naive_compressor.parameters():
+                p.requires_grad = False
+        if self.shrink_flag:
+            for p in self.shrink_conv.parameters():
+                p.requires_grad = False
+
+        for p in self.cls_head.parameters():
+            p.requires_grad = False
+        for p in self.reg_head.parameters():
+            p.requires_grad = False
+        if self.fusion_net:
+            for p in self.fusion_net.parameters():
+                p.requires_grad = False
+
             
-        # -------------------------------------------------------
-        # 3. 学生网络 (FlowNet) - 负责预测
-        # -------------------------------------------------------
-        # 注意：这里需要传入特定的参数，因为它的输入通道是 Backbone 的 2 倍
-        # 如果你之前写的 feature_flow_net.py 里包含了 backbone 逻辑，就直接用
-        # 如果是轻量级的，就只在这里定义 FlowHead
+    def extract_bev_feature(self, data_dict):
+        """
+        提取历史帧特征 (t0, t1)。
+        注意：这里只提取到 Backbone 输出 (384维)，【不进行压缩】。
+        """
+        batch_dict = self.pillar_vfe(data_dict)
+        batch_dict = self.scatter(batch_dict)
+        batch_dict = self.backbone(batch_dict)
         
-        # **FFNet原版逻辑**：FlowGenerator 也有一个 Backbone，而且是独立的！
-        # 所以我们需要再定义一个 backbone 给 flow 用，或者 FlowGenerator 内部自己有
-        self.flow_net = FlowGenerator(args) 
+        # 直接返回 384 维特征
+        return batch_dict['spatial_features_2d']
 
     def forward(self, data_dict):
-        # -------------------------------------------------------
-        # 1. 准备数据
-        # -------------------------------------------------------
-        # 假设 data_dict 里已经通过 dataloader 拿到了 t0, t1, t2 的点云
-        # 并且已经做好了 VFE 和 Scatter 变成了 BEV 特征图 (pseudo-image)
-        # 形状: [B, C, H, W]
+        # 1. 主路特征提取 (t2)
+        # ----------------------------------------------------
+        ffnet_loss_data = {}
+        voxel_features = data_dict['processed_lidar']['voxel_features']
+        voxel_coords = data_dict['processed_lidar']['voxel_coords']
+        voxel_num_points = data_dict['processed_lidar']['voxel_num_points']
+        record_len = data_dict['record_len']
+        pairwise_t_matrix = data_dict['pairwise_t_matrix']
+
+        batch_dict = {'voxel_features': voxel_features,
+                      'voxel_coords': voxel_coords,
+                      'voxel_num_points': voxel_num_points,
+                      'record_len': record_len}
+
+        batch_dict = self.pillar_vfe(batch_dict)
+        batch_dict = self.scatter(batch_dict)
+        batch_dict = self.backbone(batch_dict)
         
-        # 这里的 key 需要你根据 dataloader 的实现来定
-        bev_t0 = data_dict['bev_feat_t0'] 
-        bev_t1 = data_dict['bev_feat_t1']
-        bev_t2 = data_dict['bev_feat_t2'] # 这是 GT
+        # 获取当前帧特征 [2B, 384, H, W]
+        spatial_features_2d = batch_dict['spatial_features_2d']
 
-        # -------------------------------------------------------
-        # 2. 老师跑一遍 T2 (生成目标)
-        # -------------------------------------------------------
-        with torch.no_grad(): # 确保不传梯度
-            feat_t2_gt = self.backbone(bev_t2) # 得到 T2 时刻的高级特征
+        # 2. FFNet 预测与替换 (在 384 维进行)
+        # ----------------------------------------------------
+        if 'ego' in data_dict and 'ffnet_t0' in data_dict['ego']:
+            # 确保数据是成对的 (Veh, Infra)
+            if not torch.all(record_len == 2):
+                 raise ValueError("FFNet requires fixed [Vehicle, Infrastructure] pairs.")
 
-        # -------------------------------------------------------
-        # 3. 学生跑一遍 T0+T1 (进行预测)
-        # -------------------------------------------------------
-        # FlowNet 内部会做 concat(t0, t1) -> backbone -> compress
-        pred_feat_t2, flow = self.flow_net(bev_t0, bev_t1)
+            ffnet_t0_dict = data_dict['ego']['ffnet_t0']
+            ffnet_t1_dict = data_dict['ego']['ffnet_t1']
+            ffnet_time = data_dict['ego']['ffnet_time']
 
-        # -------------------------------------------------------
-        # 4. 计算 Loss (如果在模型内算的话)
-        # -------------------------------------------------------
-        # 也可以只返回 output_dict，在外部 train.py 里算
-        output_dict = {
-            'pred_feat': pred_feat_t2,
-            'gt_feat': feat_t2_gt,
-            'flow': flow
-        }
+            # 提取历史特征 (384维)
+            with torch.no_grad():
+                 feat_t0 = self.extract_bev_feature(ffnet_t0_dict) 
+                 feat_t1 = self.extract_bev_feature(ffnet_t1_dict) 
+
+            # 生成 Flow
+            flow_pred = self.flow_generator(feat_t0, feat_t1)
+            
+            # 时间缩放
+            dt_01 = ffnet_time['t0_1'].view(-1, 1, 1, 1).to(flow_pred.device)
+            dt_12 = ffnet_time['t1_2'].view(-1, 1, 1, 1).to(flow_pred.device)
+            
+            # 预测 t2
+            feat_pred_t2 = feat_t1 + flow_pred / (dt_01 + 1e-6) * dt_12
+            
+            # 【替换】将预测的路侧特征填入 spatial_features_2d
+            spatial_features_2d[1::2] = feat_pred_t2
+            # ================== 【新增】计算 FFNet Loss 所需数据 ==================
+            # 我们需要提取 t2 时刻的【真实特征】(Ground Truth) 来监督 feat_pred_t2
+            # 只有在训练模式下，且提供了 ffnet_t2 数据时才计算
+            if self.training and 'ffnet_t2' in data_dict['ego']:
+                ffnet_t2_dict = data_dict['ego']['ffnet_t2']
+                with torch.no_grad():
+                    # 提取真实的 t2 特征 (384维度)
+                    feat_gt_t2 = self.extract_bev_feature(ffnet_t2_dict)
+                
+                # 将预测值和真实值存入字典，传给 train.py
+                ffnet_loss_data['flow_pred'] = feat_pred_t2
+                ffnet_loss_data['flow_gt'] = feat_gt_t2
+
+        # 3. 压缩/下采样 (384 -> 256)
+        # ----------------------------------------------------
+        # 这一步移动到了 替换 之后
+        if self.shrink_flag:
+            spatial_features_2d = self.shrink_conv(spatial_features_2d)
+            
+        if self.compression:
+            spatial_features_2d = self.naive_compressor(spatial_features_2d)
+            
+        if self.dcn:
+            spatial_features_2d = self.dcn_net(spatial_features_2d)
+
+        # 4. 融合 (Where2comm)
+        # ----------------------------------------------------
+        psm_single = self.cls_head(spatial_features_2d)
+        rm_single = self.reg_head(spatial_features_2d)
+
+        if self.multi_scale:
+            fused_feature, communication_rates, result_dict = self.fusion_net(
+                spatial_features_2d,
+                psm_single,
+                record_len,
+                pairwise_t_matrix, 
+                self.backbone,
+                [self.shrink_conv, self.cls_head, self.reg_head]
+            )
+            if self.shrink_flag:
+                fused_feature = self.shrink_conv(fused_feature)
+        else:
+            fused_feature, communication_rates, result_dict = self.fusion_net(
+                spatial_features_2d,
+                psm_single,
+                record_len,
+                pairwise_t_matrix
+            )
+
+        psm = self.cls_head(fused_feature)
+        rm = self.reg_head(fused_feature)
+
+        output_dict = {'psm': psm, 'rm': rm}
+        output_dict.update(result_dict)
+        
+        # 整理单车结果
+        split_psm_single = self.regroup(psm_single, record_len)
+        split_rm_single = self.regroup(rm_single, record_len)
+        
+        psm_single_v = torch.cat([batch[0:1] for batch in split_psm_single], dim=0)
+        psm_single_i = torch.cat([batch[1:2] for batch in split_psm_single], dim=0)
+        rm_single_v = torch.cat([batch[0:1] for batch in split_rm_single], dim=0)
+        rm_single_i = torch.cat([batch[1:2] for batch in split_rm_single], dim=0)
+
+        output_dict.update({
+            'psm_single_v': psm_single_v,
+            'psm_single_i': psm_single_i,
+            'rm_single_v': rm_single_v,
+            'rm_single_i': rm_single_i,
+            'comm_rate': communication_rates,
+            'ffnet_loss_data': ffnet_loss_data
+        })
         
         return output_dict

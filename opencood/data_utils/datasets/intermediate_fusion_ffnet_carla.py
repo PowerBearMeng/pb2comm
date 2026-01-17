@@ -33,7 +33,7 @@ def load_json(path):
         data = json.load(f)
     return data
 
-class IntermediateFusionDatasetCarla(Dataset):
+class IntermediateFusionFFnetCarla(Dataset):
     """
     This class is for intermediate fusion where each vehicle transmit the
     deep features to ego.
@@ -80,7 +80,11 @@ class IntermediateFusionDatasetCarla(Dataset):
 
         self.root_dir = params['data_dir']
         self.split_info = load_json(split_dir)
-        co_datainfo = load_json(os.path.join(self.root_dir, 'cooperative/data_info.json'))
+        co_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_train.json'))
+        test_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_val_delay_1.json'))
+        # 3. 将 test 数据更新（合并）到 co_datainfo 中
+        co_datainfo.extend(test_datainfo)
+        print(f"Total cooperative data info length after merging: {len(co_datainfo)}")
         self.co_data = OrderedDict()
         for frame_info in co_datainfo:
             veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
@@ -235,7 +239,6 @@ class IntermediateFusionDatasetCarla(Dataset):
 
         object_bbx_center_single, object_bbx_mask_single, object_ids_single = self.generate_object_center_single([selected_cav_base],
                                                     ego_pose_clean)
-        
         # filter lidar
         lidar_np = selected_cav_base['lidar_np']
         lidar_np = shuffle_points(lidar_np)
@@ -293,21 +296,13 @@ class IntermediateFusionDatasetCarla(Dataset):
         lidar_np = shuffle_points(lidar_np)
         lidar_np = mask_ego_points(lidar_np)
 
-        # 2. 投影到目标坐标系 (Project to Ego Space)
-        # 注意：这里直接修改了 lidar_np 的前3列
         projected_lidar = box_utils.project_points_by_matrix_torch(
             lidar_np[:, :3], transformation_matrix
         )
-        lidar_np[:, :3] = projected_lidar
 
-        # 3. 范围裁剪 (Range Clipping)
-        # 过滤掉投影后跑出感知范围的点
         lidar_np = mask_points_by_range(
             lidar_np, self.params['preprocess']['cav_lidar_range']
         )
-
-        # 4. 体素化 (Pre-processing / Voxelization)
-        # 返回的是字典 {'voxel_features': ..., 'voxel_coords': ...}
         processed_features = self.pre_processor.preprocess(lidar_np)
 
         return projected_lidar, processed_features
@@ -355,13 +350,7 @@ class IntermediateFusionDatasetCarla(Dataset):
 
     def __getitem__(self, idx):
         base_data_dict = self.retrieve_base_data(idx)
-        # data [0]  -- veh-side
-        # data [1]  -- inf-side  
-        # "lidar_np": np.ndarray of shape (n, 4), first three channels are x,y,z
-        # 还有 label信息 还有 转移矩阵信息
         base_data_dict = add_noise_data_dict(base_data_dict,self.params['noise_setting'])
-        # 加噪声
-
         processed_data_dict = OrderedDict()
         processed_data_dict['ego'] = {}
 
@@ -393,7 +382,8 @@ class IntermediateFusionDatasetCarla(Dataset):
         lidar_pose_clean_list = []
         projected_lidar_clean_list = []
         cav_id_list = []
-
+        infra_ffnet_features = []
+        infra_ffnet_time_intervals = []
         # if self.visualize:
         projected_lidar_stack = []
 
@@ -423,7 +413,25 @@ class IntermediateFusionDatasetCarla(Dataset):
                 ego_keypoints, 
                 ego_allpoints,
                 idx)
-                
+            # 路侧才做这个处理
+            if cav_id == 1 and 'ffnet' in selected_cav_base:
+                trans_matrix = selected_cav_processed['transformation_matrix'] 
+
+                ffnet_features = {}
+                for key in ['t_0', 't_1', 't_2']:
+                    if key in selected_cav_base['ffnet']:
+                        raw_pcm = selected_cav_base['ffnet'][key]
+                        if raw_pcm is not None:
+                            # 复用你写好的处理函数 (需确保该函数可用，见下文建议)
+                            _, feat_dict = self.process_single_lidar(raw_pcm, trans_matrix)
+                            ffnet_features[key] = feat_dict
+
+                infra_ffnet_features.append(ffnet_features)
+                infra_ffnet_time_intervals.append({
+                    't_0_1': selected_cav_base['ffnet'].get('t_0_1', 1.0),
+                    't_1_2': selected_cav_base['ffnet'].get('t_1_2', 1.0)
+                })
+
             object_stack.append(selected_cav_processed['object_bbx_center'])
             object_id_stack += selected_cav_processed['object_ids']
 
@@ -447,9 +455,6 @@ class IntermediateFusionDatasetCarla(Dataset):
             projected_lidar_stack.append(
                     selected_cav_processed['projected_lidar'])
 
-        ########## Added by Yifan Lu 2022.4.5 ################
-        # filter those out of communicate range
-        # then we can calculate get_pairwise_transformation
         for cav_id in too_far:
             base_data_dict.pop(cav_id)
         
@@ -519,9 +524,10 @@ class IntermediateFusionDatasetCarla(Dataset):
              'cav_num': cav_num,
              'pairwise_t_matrix': pairwise_t_matrix,
              'lidar_poses_clean': lidar_poses_clean,
-             'lidar_poses': lidar_poses
+             'lidar_poses': lidar_poses,
+             'ffnet_features_list': infra_ffnet_features,  # 注意这里是 List
+             'ffnet_time_intervals_list': infra_ffnet_time_intervals
              })
-
         if self.kd_flag:
             processed_data_dict['ego'].update({'teacher_processed_lidar':
                 stack_feature_processed})
@@ -580,6 +586,11 @@ class IntermediateFusionDatasetCarla(Dataset):
         pairwise_t_matrix_list = []
 
         origin_lidar_i = [] # <--- 新增
+        ## ffnet 
+        batch_ffnet_t0_list = []
+        batch_ffnet_t1_list = []
+        batch_ffnet_t2_list = []
+        batch_ffnet_time_list = []
         if self.kd_flag:
             teacher_processed_lidar_list = []
         if self.visualize:
@@ -605,7 +616,21 @@ class IntermediateFusionDatasetCarla(Dataset):
             object_ids_single_i.append(ego_dict['object_ids_single_i'])
             label_dict_list_single_i.append(ego_dict['label_dict_single_i'])
             ######################## Single View GT ########################
-            
+            # 检查当前样本是否有 ffnet 数据
+            if 'ffnet_features_list' in ego_dict and ego_dict['ffnet_features_list']:
+                required_keys = {'t_0', 't_1', 't_2'}
+                for infra_feat_dict in ego_dict['ffnet_features_list']:
+                    if not required_keys.issubset(infra_feat_dict):
+                        missing = required_keys - infra_feat_dict.keys()
+                        raise KeyError(f"FFNet features missing: {missing}")
+                    
+                    batch_ffnet_t0_list.append(infra_feat_dict['t_0'])
+                    batch_ffnet_t1_list.append(infra_feat_dict['t_1'])
+                    batch_ffnet_t2_list.append(infra_feat_dict['t_2'])
+            if 'ffnet_time_intervals_list' in ego_dict:
+                 # 收集时间间隔，用于 FlowNet 计算速度 (v = d / delta_t)
+                 batch_ffnet_time_list.extend(ego_dict['ffnet_time_intervals_list'])
+
             lidar_pose_list.append(ego_dict['lidar_poses']) # ego_dict['lidar_pose'] is np.ndarray [N,6]
             lidar_pose_clean_list.append(ego_dict['lidar_poses_clean'])
 
@@ -655,6 +680,25 @@ class IntermediateFusionDatasetCarla(Dataset):
 
         # (B, max_cav)
         pairwise_t_matrix = torch.from_numpy(np.array(pairwise_t_matrix_list))
+        if len(batch_ffnet_t0_list) > 0:
+            merged_t0 = self.merge_features_to_dict(batch_ffnet_t0_list)
+            output_dict['ego']['ffnet_t0'] = self.pre_processor.collate_batch(merged_t0)
+        if len(batch_ffnet_t1_list) > 0:
+            merged_t1 = self.merge_features_to_dict(batch_ffnet_t1_list)
+            output_dict['ego']['ffnet_t1'] = self.pre_processor.collate_batch(merged_t1)
+        if len(batch_ffnet_t2_list) > 0:
+            merged_t2 = self.merge_features_to_dict(batch_ffnet_t2_list)
+            output_dict['ego']['ffnet_t2'] = self.pre_processor.collate_batch(merged_t2)
+
+        # 放在 collate_batch_train 最后
+        if len(batch_ffnet_time_list) > 0:
+            keys = batch_ffnet_time_list[0].keys()
+            ffnet_time_torch = {}
+            for key in keys:
+                values = [x[key] for x in batch_ffnet_time_list]
+                ffnet_time_torch[key] = torch.tensor(values, dtype=torch.float32)
+            
+            output_dict['ego']['ffnet_time'] = ffnet_time_torch
 
         # add pairwise_t_matrix to label dict
         label_torch_dict['pairwise_t_matrix'] = pairwise_t_matrix
@@ -715,7 +759,6 @@ class IntermediateFusionDatasetCarla(Dataset):
         if self.params['preprocess']['core_method'] == 'SpVoxelPreprocessor' and \
             (output_dict['ego']['processed_lidar']['voxel_coords'][:, 0].max().int().item() + 1) != record_len.sum().int().item():
             return None
-
         return output_dict
 
     def collate_batch_test(self, batch):
@@ -852,5 +895,3 @@ class IntermediateFusionDatasetCarla(Dataset):
         gt_box_tensor = self.post_processor.generate_gt_bbx(data_dict)
 
         return pred_box_tensor, pred_score, gt_box_tensor
-
-

@@ -9,11 +9,14 @@ from opencood.data_utils.datasets.early_fusion_dataset_dair import EarlyFusionDa
 from opencood.data_utils.datasets.intermediate_fusion_dataset_test import IntermediateFusionDatasetTest
 from opencood.data_utils.datasets.intermediate_fusion_dataset_carla import IntermediateFusionDatasetCarla
 from opencood.data_utils.datasets.late_fusion_dataset_carla import LateFusionDatasetCarla
+from opencood.data_utils.datasets.intermediate_fusion_ffnet_carla import IntermediateFusionFFnetCarla
+import os
 __all__ = {
     'EarlyFusionDatasetDAIR': EarlyFusionDatasetDAIR,
     'IntermediateFusionDatasetTest': IntermediateFusionDatasetTest,
     'IntermediateFusionDatasetCarla': IntermediateFusionDatasetCarla,
     'LateFusionDatasetCarla': LateFusionDatasetCarla,
+    'IntermediateFusionFFnetCarla': IntermediateFusionFFnetCarla,
 }
     # 'IntermediateFusionDatasetDAIR': IntermediateFusionDatasetDAIR,
     # 'LateFusionDatasetDAIR': LateFusionDatasetDAIR,
