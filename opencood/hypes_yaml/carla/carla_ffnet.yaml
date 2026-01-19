@@ -18,9 +18,9 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 1
-  epoches: 50
-  eval_freq: 2
-  save_freq: 2
+  epoches: 51
+  eval_freq: 5
+  save_freq: 5
   max_cav: &max_cav 2
 
 
@@ -79,7 +79,7 @@ postprocess:
 
 # model related
 model:
-  core_method: point_pillar_where2comm
+  core_method: point_pillar_ffnet
   args:
     voxel_size: *voxel_size
     lidar_range: *cav_lidar
@@ -105,12 +105,13 @@ model:
       num_upsample_filter: [128, 128, 128]
       compression: 4
       voxel_size: *voxel_size
+
     flow_generator_args:
       feature_dim: 384  # Backbone 输出的特征维度
       backbone:
         resnet: false
         layer_nums: &ffnet_layer_nums [3, 4, 5]
-        layer_strides: [2, 2, 2]
+        layer_strides: [1, 2, 2]
         num_filters: &ffnet_num_filters [64, 128, 256]
         upsample_strides: [1, 2, 4]
         num_upsample_filter: [128, 128, 128]
@@ -140,7 +141,7 @@ model:
       agg_operator:
         mode: 'MAX'
         feature_dim: 256
-      multi_scale: true
+      multi_scale: false
       layer_nums: *layer_nums
       num_filters: *num_filters
 

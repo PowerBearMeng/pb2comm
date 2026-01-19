@@ -323,9 +323,10 @@ class Where2comm(nn.Module):
 
             ############ 2. Communication (Mask the features) #########
             if self.communication:
-                _, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+                comm_maps, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
             else:
                 communication_rates = torch.tensor(0).to(x.device)
+                comm_maps = None # 没通信就没有地图
             
             ############ 3. Fusion ####################################
             x_fuse = []
