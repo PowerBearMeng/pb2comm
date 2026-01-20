@@ -46,7 +46,6 @@ def main():
     print(f'Fusion method: {hypes["model"]["core_method"]}')
     if opt.comm_thre is not None:
         hypes['model']['args']['fusion_args']['communication']['thre'] = opt.comm_thre
-
     hypes['validate_dir'] = hypes['test_dir']
     # assert "test" in hypes['validate_dir']
     left_hand = True if "OPV2V" in hypes['test_dir'] else False
@@ -61,7 +60,7 @@ def main():
                              shuffle=False,
                              pin_memory=False,
                              drop_last=False)
-
+    print(f'加载数据 : {hypes["fusion"]["core_method"]}')
     print('Creating Model')
     model = train_utils.create_model(hypes)
     # we assume gpu is necessary

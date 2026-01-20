@@ -125,7 +125,7 @@ def main():
     epoches = hypes['train_params']['epoches']
     # used to help schedule learning rate
     with_round_loss = False
-    
+    print(model)
     for epoch in range(init_epoch, max(epoches, init_epoch)):
         for param_group in optimizer.param_groups:
             print('learning rate %f' % param_group["lr"])

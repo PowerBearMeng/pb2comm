@@ -18,7 +18,7 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 1
-  epoches: 51
+  epoches: 31
   eval_freq: 5
   save_freq: 5
   max_cav: &max_cav 2
@@ -107,11 +107,11 @@ model:
       voxel_size: *voxel_size
 
     flow_generator_args:
-      feature_dim: 384  # Backbone 输出的特征维度
+      feature_dim: 64  # Backbone 输出的特征维度
       backbone:
         resnet: false
         layer_nums: &ffnet_layer_nums [3, 4, 5]
-        layer_strides: [1, 2, 2]
+        layer_strides: [2, 2, 2]
         num_filters: &ffnet_num_filters [64, 128, 256]
         upsample_strides: [1, 2, 4]
         num_upsample_filter: [128, 128, 128]
