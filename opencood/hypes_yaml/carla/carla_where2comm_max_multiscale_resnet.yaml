@@ -1,13 +1,13 @@
 name: carla_where2comm_max_nomulti_resnet
-data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
-test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
+# data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
+# root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
+# validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
+# test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 
-# data_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure"
-# root_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-# validate_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
-# test_dir: "/home/yty/mfh/CARLA-V2X/cooperative-vehicle-infrastructure/train.json"
+data_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
+test_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
 
 noise_setting:
   add_noise: False
@@ -30,7 +30,7 @@ train_params:
 
 
 fusion:
-  core_method: 'IntermediateFusionDatasetCarla' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
+  core_method: 'IntermediateFusionMotion' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
   args:
     proj_first: false
     clip_pc: false
@@ -40,15 +40,15 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.4, 0.3, 7] #480 400
+    voxel_size: &voxel_size [0.28, 0.2, 6] #480 400
     # [0.44, 0.10, 10]  # xmax - xmin / 400 
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
-  cav_lidar_range: &cav_lidar [-80, -60, -3, 80, 60, 4]
+  cav_lidar_range: &cav_lidar [-56, -40, -2, 56, 40, 4]
   # [-56, -30, -2, 56, 30, 3] demo 
-
+  # record [-80, -60, -3, 80, 60, 4]
 data_augment:
   - NAME: random_world_flip
     ALONG_AXIS_LIST: [ 'x' ]
@@ -65,9 +65,9 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.76
-    w: 1.95
-    h: 1.55
+    l: 4.83
+    w: 1.87
+    h: 1.51
     # l: 4.5
     # w: 1.9
     # h: 1.5

@@ -104,14 +104,6 @@ def main():
                     inference_utils.inference_intermediate_fusion(batch_data,
                                                                   model,
                                                                   opencood_dataset)
-                # # ======== 添加调试 ========
-                # if i < 5:  # 只打印前5个样本
-                #     print(f"\n=== Test Sample {i} ===")
-                #     print(f"GT boxes: {gt_box_tensor.shape if gt_box_tensor is not None else 'None'}")
-                #     print(f"Pred boxes:  {pred_box_tensor.shape if pred_box_tensor is not None else 'None'}")
-                #     if pred_score is not None:
-                #         print(f"Pred scores: max={pred_score.max():.4f}, mean={pred_score.mean():.4f}")
-                # # ======== 结束 ========
             elif opt.fusion_method == 'no':
                 pred_box_tensor, pred_score, gt_box_tensor = \
                     inference_utils.inference_no_fusion(batch_data,

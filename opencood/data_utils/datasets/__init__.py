@@ -11,6 +11,7 @@ from opencood.data_utils.datasets.intermediate_fusion_dataset_carla import Inter
 from opencood.data_utils.datasets.late_fusion_dataset_carla import LateFusionDatasetCarla
 from opencood.data_utils.datasets.intermediate_fusion_ffnet_carla import IntermediateFusionFFnetCarla
 from opencood.data_utils.datasets.intermediate_fusion_dataset_carla_infer import IntermediateFusionDatasetCarlaInfer
+from opencood.data_utils.datasets.intermediate_fusion_motion import IntermediateFusionMotion    
 __all__ = {
     'EarlyFusionDatasetDAIR': EarlyFusionDatasetDAIR,
     'IntermediateFusionDatasetTest': IntermediateFusionDatasetTest,
@@ -18,7 +19,8 @@ __all__ = {
     'LateFusionDatasetCarla': LateFusionDatasetCarla,
     'IntermediateFusionFFnetCarla': IntermediateFusionFFnetCarla,
     'IntermediateFusionDatasetCarlaInfer': IntermediateFusionDatasetCarlaInfer,
-}
+    'IntermediateFusionMotion': IntermediateFusionMotion,
+}   
     # 'IntermediateFusionDatasetDAIR': IntermediateFusionDatasetDAIR,
     # 'LateFusionDatasetDAIR': LateFusionDatasetDAIR,
     # 'IntermediateFusionDatasetSeq': IntermediateFusionDatasetSeq,
