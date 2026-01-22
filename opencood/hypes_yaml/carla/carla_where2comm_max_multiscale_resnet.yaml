@@ -4,10 +4,10 @@ name: carla_where2comm_max_nomulti_resnet
 # validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 # test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
 
-data_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
-test_dir: "/home/yty/mfh/carla_data/town12_t_7/cooperative-vehicle-infrastructure/train.json"
+data_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
+test_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
 
 noise_setting:
   add_noise: False
@@ -23,14 +23,14 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
-  epoches: 51
+  epoches: 31
   eval_freq: 10
   save_freq: 10
   max_cav: &max_cav 2
 
 
 fusion:
-  core_method: 'IntermediateFusionMotion' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
+  core_method: 'IntermediateFusionDatasetCarla' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
   args:
     proj_first: false
     clip_pc: false
@@ -40,13 +40,13 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.28, 0.2, 6] #480 400
+    voxel_size: &voxel_size [0.44, 0.34, 6] #480 400
     # [0.44, 0.10, 10]  # xmax - xmin / 400 
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
-  cav_lidar_range: &cav_lidar [-56, -40, -2, 56, 40, 4]
+  cav_lidar_range: &cav_lidar [-88, -68, -2, 88, 68, 4]
   # [-56, -30, -2, 56, 30, 3] demo 
   # record [-80, -60, -3, 80, 60, 4]
 data_augment:
@@ -65,9 +65,9 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.83
-    w: 1.87
-    h: 1.51
+    l: 4.64
+    w: 1.93
+    h: 1.55
     # l: 4.5
     # w: 1.9
     # h: 1.5
@@ -116,14 +116,7 @@ model:
       padding: [ 1 ]
       dim: [ 256 ]
       input_dim: 384 # 128 * 3
-    
-    # dcn:
-    #   in_channels: [384]
-    #   out_channels: [256]
-    #   stride: [1]
-    #   padding: [1]
-    #   kernel_size : [3]
-    #   n_blocks: 1
+  
 
     fusion_args:
       voxel_size: *voxel_size
@@ -141,7 +134,7 @@ model:
       agg_operator:
         mode: 'MAX'
         feature_dim: 256
-      multi_scale: false
+      multi_scale: true
       layer_nums: *layer_nums
       num_filters: *num_filters
 

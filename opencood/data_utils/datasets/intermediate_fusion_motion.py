@@ -71,8 +71,10 @@ class IntermediateFusionMotion(Dataset):
 
         if self.train:
             split_dir = params['root_dir']
+            traj_json_path = params['traj_train']
         else:
             split_dir = params['validate_dir']
+            traj_json_path = params['traj_test']
 
         self.root_dir = params['data_dir']
         self.split_info = load_json(split_dir)
@@ -83,7 +85,6 @@ class IntermediateFusionMotion(Dataset):
         # =========================================================
         self.pred_len = 5
         self.traj_database = {}       
-        traj_json_path = os.path.join(self.root_dir, 'train_traj_coop.json')
         if os.path.exists(traj_json_path):
             print(f"[Dataset] (Debug Mode) Loading trajectory labels from {traj_json_path} ...")
             self.traj_database = load_json(traj_json_path)

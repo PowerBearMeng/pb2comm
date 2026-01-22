@@ -61,7 +61,7 @@ class VoxelPostprocessor(BasePostprocessor):
         cx = np.tile(cx[..., np.newaxis], self.anchor_num) # center
         cy = np.tile(cy[..., np.newaxis], self.anchor_num)
         #  这个是很关键的，z轴中心点统一
-        cz = np.ones_like(cx) * 0.83
+        cz = np.ones_like(cx) * 0.78
 
         w = np.ones_like(cx) * w
         l = np.ones_like(cx) * l
