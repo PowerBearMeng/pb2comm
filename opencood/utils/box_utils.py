@@ -1161,9 +1161,11 @@ def project_world_objects_carla(object_list,
     """
     i = 0
     for object_content in object_list:        
-        # object_id = i
-        # i = i + 1
-        object_id = object_content['id']
+        if 'id' in object_content:
+            object_id = object_content['id']
+        else:
+            object_id = i
+            i = i + 1
         # lidar_to_world = x_to_world(lidar_pose) # T_world_lidar
         # world_to_lidar = np.linalg.inv(lidar_to_world)
 

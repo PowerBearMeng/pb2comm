@@ -4,6 +4,7 @@ import torch.nn as nn
 from opencood.models.point_pillar_where2comm import PointPillarWhere2comm
 from opencood.models.sub_modules.flow import FlowGenerator
 import torch.nn.functional as F
+from opencood.models.fuse_modules.where2comm_flow import Where2comm
 class PointPillarFlow(PointPillarWhere2comm):
     def __init__(self, args):
         super(PointPillarFlow, self).__init__(args)
@@ -11,6 +12,8 @@ class PointPillarFlow(PointPillarWhere2comm):
         self.flow_generator = FlowGenerator(args['flow_generator_args'])
         if args['backbone_fix']:
             self.backbone_fix()
+            print("冻结 Backbone 参数，用于 Finetune FlowNet")
+        self.fusion_net = Where2comm(args['fusion_args'])
     def backbone_fix(self):
         """
         Fix the parameters of backbone during finetune on timedelay。
@@ -117,7 +120,22 @@ class PointPillarFlow(PointPillarWhere2comm):
             return feat_64, feat_384
         else:
             return feat_64    
-
+    
+    def warp_feature_for_loss(self, x, flow):
+        # ... (复制你原来的 warp_feature 代码放到这里) ...
+        # 仅仅为了代码整洁，你可以直接复用 where2comm 里的那个函数，或者保留你自己的
+        B, C, H, W = x.size()
+        xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
+        yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
+        xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
+        yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
+        grid = torch.cat((xx, yy), 1).float().to(x.device)
+        vgrid = grid + flow
+        vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W - 1, 1) - 1.0
+        vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H - 1, 1) - 1.0
+        vgrid = vgrid.permute(0, 2, 3, 1)
+        output = F.grid_sample(x, vgrid, mode='bilinear', padding_mode='zeros', align_corners=True)
+        return output
     def forward(self, data_dict):
         ffnet_loss_data = {}
         voxel_features = data_dict['processed_lidar']['voxel_features']
@@ -133,100 +151,109 @@ class PointPillarFlow(PointPillarWhere2comm):
 
         batch_dict = self.pillar_vfe(batch_dict)
         batch_dict = self.scatter(batch_dict)
-        batch_dict = self.backbone(batch_dict)
         
-        # 获取当前帧特征 [2B, 384, H, W]
+        # 保存这个未经 Backbone 的特征，传给 Where2comm 用
+        spatial_features_vfe = batch_dict['spatial_features'] 
+        
+        batch_dict = self.backbone(batch_dict)
         spatial_features_2d = batch_dict['spatial_features_2d']
+        # -----------------------------------------------------------
+        # 2. 计算 Flow (用于多尺度融合 + Loss)
+        # -----------------------------------------------------------
+        flow_map_final = None # 这个是要传给 Fusion 的
 
         if 'ffnet_t0' in data_dict.keys():
-            # 确保数据是成对的 (Veh, Infra)
-            if not torch.all(record_len == 2):
-                 raise ValueError("FFNet requires fixed [Vehicle, Infrastructure] pairs.")
-
             ffnet_t0_dict = data_dict['ffnet_t0']
             ffnet_t1_dict = data_dict['ffnet_t1']
             ffnet_time = data_dict['ffnet_time']
-            # 并行提取特征
+            
             with torch.no_grad():
                 combined_feat_64, combined_feat_384 = self.extract_bev_features_batch(
                     [ffnet_t0_dict, ffnet_t1_dict],
                     return_both=True
                 )
-                
                 feat_t0_64 = combined_feat_64[0::2]
                 feat_t1_64 = combined_feat_64[1::2]
                 feat_t1_384 = combined_feat_384[1::2]
 
-            # FlowNet 预测
+            # A. 预测 Flow (t0 -> t1)
             flow_pred = self.flow_generator(feat_t0_64, feat_t1_64)
-            # 时间缩放
+            
+            # B. 时间外推 (t1 -> t2)
             dt_01 = ffnet_time['t_0_1'].view(-1, 1, 1, 1).to(flow_pred.device)
             dt_12 = ffnet_time['t_1_2'].view(-1, 1, 1, 1).to(flow_pred.device)
-            
-            # 预测 t2
             flow_t1_to_t2 = flow_pred / (dt_01 + 1e-6) * dt_12
-            feat_pred_t2 = self.warp_feature(feat_t1_384, flow_t1_to_t2) # <-- 新代码
-            feat_gt_t2 = spatial_features_2d[1:: 2].clone().detach()  # [B, 384, H, W]
-            # 【替换】将预测的路侧特征填入 spatial_features_2d
-            spatial_features_2d[1::2] = feat_pred_t2
-            # 将预测值和真实值存入字典，传给 train.py
+            
+            # C. 准备传给 Fusion 的 Flow Map
+            flow_map_final = flow_t1_to_t2
+
+            # D. 计算 Loss 相关数据
+            feat_pred_t2 = self.warp_feature_for_loss(feat_t1_384, flow_t1_to_t2)
+            
+            # 真实特征 (GT)
+            feat_gt_t2 = spatial_features_2d[1::2].clone().detach()
+
+            # 存入 Loss 字典
             ffnet_loss_data['flow_pred'] = feat_pred_t2
             ffnet_loss_data['flow_gt'] = feat_gt_t2
-        else:
-            print("Warning: FFNet temporal data not found in input. Skipping FFNet prediction.")
+            ffnet_loss_data['flow_vis'] = flow_t1_to_t2
+
+        # 3. 后处理 (压缩/DCN)
         if self.shrink_flag:
             spatial_features_2d = self.shrink_conv(spatial_features_2d)
-            
-        if self.compression:
-            spatial_features_2d = self.naive_compressor(spatial_features_2d)
-            
         if self.dcn:
             spatial_features_2d = self.dcn_net(spatial_features_2d)
 
+        # 单车检测头 (用于生成通信 Mask)
         psm_single = self.cls_head(spatial_features_2d)
         rm_single = self.reg_head(spatial_features_2d)
 
+        # 4. 调用 Fusion (带 Flow!)
+        # -----------------------------------------------------------
         if self.multi_scale:
+            # 【关键】把 flow_map_final 传进去
+            # 【注意】第一个参数传 spatial_features_vfe (未经过 Backbone 的)，
+            # 因为 Where2comm 多尺度模式会自己跑 Backbone
             fused_feature, communication_rates, result_dict = self.fusion_net(
-                spatial_features_2d,
+                spatial_features_vfe, 
                 psm_single,
                 record_len,
                 pairwise_t_matrix, 
-                self.backbone,
-                [self.shrink_conv, self.cls_head, self.reg_head]
+                self.backbone, # 传入 backbone 实例
+                [self.shrink_conv, self.cls_head, self.reg_head],
+                flow_map=flow_map_final # <--- 你的 Flow 在这里进入多尺度循环
             )
             if self.shrink_flag:
                 fused_feature = self.shrink_conv(fused_feature)
         else:
+            # 单尺度备用逻辑
             fused_feature, communication_rates, result_dict = self.fusion_net(
                 spatial_features_2d,
                 psm_single,
                 record_len,
                 pairwise_t_matrix
             )
+        # -----------------------------------------------------------
 
+        # 5. 最终检测头
         psm = self.cls_head(fused_feature)
         rm = self.reg_head(fused_feature)
 
         output_dict = {'psm': psm, 'rm': rm}
         output_dict.update(result_dict)
         
-        # 整理单车结果
+        # 保存 Loss 数据
+        output_dict['ffnet_loss_data'] = ffnet_loss_data
+        
+        # 保存单车结果 (保持不变)
         split_psm_single = self.regroup(psm_single, record_len)
         split_rm_single = self.regroup(rm_single, record_len)
-        
-        psm_single_v = torch.cat([batch[0:1] for batch in split_psm_single], dim=0)
-        psm_single_i = torch.cat([batch[1:2] for batch in split_psm_single], dim=0)
-        rm_single_v = torch.cat([batch[0:1] for batch in split_rm_single], dim=0)
-        rm_single_i = torch.cat([batch[1:2] for batch in split_rm_single], dim=0)
-
         output_dict.update({
-            'psm_single_v': psm_single_v,
-            'psm_single_i': psm_single_i,
-            'rm_single_v': rm_single_v,
-            'rm_single_i': rm_single_i,
-            'comm_rate': communication_rates,
-            'ffnet_loss_data': ffnet_loss_data
+            'psm_single_v': torch.cat([batch[0:1] for batch in split_psm_single], dim=0),
+            'psm_single_i': torch.cat([batch[1:2] for batch in split_psm_single], dim=0),
+            'rm_single_v': torch.cat([batch[0:1] for batch in split_rm_single], dim=0),
+            'rm_single_i': torch.cat([batch[1:2] for batch in split_rm_single], dim=0),
+            'comm_rate': communication_rates
         })
         
         return output_dict

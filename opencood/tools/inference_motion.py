@@ -39,7 +39,7 @@ def compute_ade_fde_numpy(pred_traj, gt_traj, gt_mask):
     
     valid_final_dist = final_dist[final_mask == 1]
     if len(valid_final_dist) == 0:
-        fde = 0.0
+        fde = None
     else:
         fde = np.mean(valid_final_dist)
 
@@ -200,12 +200,12 @@ def main():
                 
                 if ade is not None:
                     all_ade.append(ade)
+                # 只有当 fde 真的算出来了，才加进去
+                if fde is not None:
                     all_fde.append(fde)
                 
                 # 可视化 (每 20 帧保存一张，必须加 --vis 参数)
                 if opt.vis and i % 20 == 0:
-                    # 注意：这里传入的是更新过 mask (过滤了静止物体) 的数据
-                    # 这样可视化出来的图片里，静止物体就不会画红绿线了，非常清爽
                     batch_data['ego']['object_traj_mask'] = torch.from_numpy(gt_mask).to(device)
                     visualize_motion(batch_data, output_dict, i, vis_dir)
 

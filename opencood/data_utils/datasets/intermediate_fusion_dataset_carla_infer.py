@@ -85,6 +85,7 @@ class IntermediateFusionDatasetCarlaInfer(Dataset):
         # 3. 将 test 数据更新（合并）到 co_datainfo 中
         co_datainfo.extend(test_datainfo)
         self.co_data = OrderedDict()
+        print("我是ffnet 的 infer dataset ")
         for frame_info in co_datainfo:
             veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
             self.co_data[veh_frame_id] = frame_info

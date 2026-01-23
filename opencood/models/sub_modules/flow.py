@@ -2,7 +2,7 @@
 import torch
 import torch.nn as nn
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
-
+from opencood.models.sub_modules.base_bev_backbone_resnet import ResNetBEVBackbone
 class ReduceInfTC(nn.Module):
     """
     压缩层：用于调整 Flow Backbone 的输出，使其与特征图维度一致。
@@ -52,8 +52,11 @@ class FlowGenerator(nn.Module):
         
         input_channels = feature_dim * 2 
         backbone_cfg['in_channels'] = input_channels
-        
-        self.flow_backbone = BaseBEVBackbone(backbone_cfg, input_channels)
+        self.reduce_conv = nn.Conv2d(input_channels, feature_dim, kernel_size=1)
+        if 'resnet' in backbone_cfg:
+            self.flow_backbone = ResNetBEVBackbone(backbone_cfg, input_channels)
+        else:
+            self.flow_backbone = BaseBEVBackbone(backbone_cfg, input_channels)
         self.pre_encoder = ReduceInfTC(768)  # 出来的是 [B, 2, H, W]
 
     def forward(self, feat_t0, feat_t1):
@@ -63,10 +66,11 @@ class FlowGenerator(nn.Module):
             feat_t1: [B, 64, H, W]
         """
         # 1. 拼接 -> [B, 128, H, W]
-        input_feat = torch.cat([feat_t0, feat_t1], dim=1)
-        
+        concat_feat = torch.cat([feat_t0, feat_t1], dim=1)
+        input_feat = self.reduce_conv(concat_feat)
         # 2. Backbone -> [B, 128, H, W]
         backbone_out = self.flow_backbone({'spatial_features': input_feat})
+        
         flow_feat = backbone_out['spatial_features_2d']
         
         # 3. Refine -> [B, 2, H, W]
