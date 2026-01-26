@@ -5,16 +5,22 @@ from opencood.models.point_pillar_where2comm import PointPillarWhere2comm
 from opencood.models.sub_modules.flow import FlowGenerator
 import torch.nn.functional as F
 from opencood.models.fuse_modules.where2comm_flow import Where2comm
-class PointPillarFlow(PointPillarWhere2comm):
+from opencood.models.sub_modules.motion_head import MotionHead
+from opencood.models.point_pillar_motion import sample_features_from_coords
+class PointPillarFlowMotion(PointPillarWhere2comm):
     def __init__(self, args):
-        super(PointPillarFlow, self).__init__(args)
+        super(PointPillarFlowMotion, self).__init__(args)
         # 初始化 FlowGenerator
         self.flow_generator = FlowGenerator(args['flow_generator_args'])
         self.fusion_net = Where2comm(args['fusion_args'])
+        self.pred_len = args.get('pred_len', 5) # 预测未来多少个点
+        self.motion_head = MotionHead(in_channels=256, pred_len=self.pred_len)
+        
+        # 记得把 pc_range 存下来，sample 特征时要用
+        self.pc_range = args['lidar_range']
         if args['backbone_fix']:
             self.backbone_fix()
             print("冻结 Backbone 参数，用于 Finetune FlowNet")
-            
     def backbone_fix(self):
         """
         Fix the parameters of backbone during finetune on timedelay。
@@ -39,6 +45,7 @@ class PointPillarFlow(PointPillarWhere2comm):
             p.requires_grad = False
         for p in self.reg_head.parameters():
             p.requires_grad = False
+        # 把 fusion也给冻结了
         if self.fusion_net:
             for p in self.fusion_net.parameters():
                 p.requires_grad = False
@@ -245,7 +252,26 @@ class PointPillarFlow(PointPillarWhere2comm):
         
         # 保存 Loss 数据
         output_dict['ffnet_loss_data'] = ffnet_loss_data
-        
+
+        # ================== 【新增 3】 轨迹预测分支 ==================
+        # 逻辑完全参考 PointPillarMotion
+        if 'object_bbx_center' in data_dict:
+            # (B, N, 7) -> GT 中心的位置
+            gt_centers = data_dict['object_bbx_center']
+            
+            # 从融合后的特征图 (fused_feature) 上采样出物体特征
+            # fused_feature: [B, 256, H, W]
+            obj_feats = sample_features_from_coords(
+                fused_feature, 
+                gt_centers[..., :2], 
+                self.pc_range
+            )
+            traj_preds = self.motion_head(obj_feats)
+            
+            # 存入 output_dict
+            output_dict['traj_preds'] = traj_preds
+        # ==========================================================
+
         # 保存单车结果 (保持不变)
         split_psm_single = self.regroup(psm_single, record_len)
         split_rm_single = self.regroup(rm_single, record_len)

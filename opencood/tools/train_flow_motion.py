@@ -122,7 +122,12 @@ def main():
             batch_data['ego']['epoch'] = epoch
             
             output_dict = model(batch_data['ego'])
-            
+            # ================= 【你缺失的部分】 =================
+            # 必须手动把轨迹真值塞进 label_dict，否则 Loss 函数看不见！
+            if 'object_traj' in batch_data['ego']:
+                batch_data['ego']['label_dict']['object_traj'] = batch_data['ego']['object_traj']
+                batch_data['ego']['label_dict']['object_traj_mask'] = batch_data['ego']['object_traj_mask']
+            # ===================================================
             # ==================== 【改动 3】 极简的 Loss 计算 ====================
             # 这一行现在同时计算：Detection Loss + Flow Loss (带 Mask)
             final_loss = criterion(output_dict, batch_data['ego']['label_dict'])

@@ -1,15 +1,10 @@
-name: carla_ffnet_max_multiscale_resnet
-# data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
-# root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
-# validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
-# test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
-
+name: carla_flow_motion
 data_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure"
 root_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train.json"
 validate_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
 test_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
-flow_train:
-flow_test:
+traj_train : "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train_traj_coop.json"
+traj_test : "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test_traj_coop.json"
 
 noise_setting:
   add_noise: False
@@ -25,14 +20,14 @@ noise_setting:
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 1
-  epoches: 11
-  eval_freq: 5
-  save_freq: 5
+  epoches: 31
+  eval_freq: 10
+  save_freq: 10
   max_cav: &max_cav 2
 
 
 fusion:
-  core_method: 'IntermediateFusionFFnetCarla' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
+  core_method: 'IntermediateFlowMotion' # LateFusionDataset, EarlyFusionDataset, IntermediateFusionDataset supported
   args:
     proj_first: false
     clip_pc: false
@@ -50,7 +45,7 @@ preprocess:
   # lidar range for each individual cav. Format: xyzxyz minmax
   cav_lidar_range: &cav_lidar [-88, -68, -2, 88, 68, 4]
   # [-56, -30, -2, 56, 30, 3] demo 
-
+  # record [-80, -60, -3, 80, 60, 4]
 data_augment:
   - NAME: random_world_flip
     ALONG_AXIS_LIST: [ 'x' ]
@@ -83,7 +78,7 @@ postprocess:
 
 # model related
 model:
-  core_method: point_pillar_flow
+  core_method: point_pillar_flow_motion
   args:
     voxel_size: *voxel_size
     lidar_range: *cav_lidar
@@ -100,7 +95,7 @@ model:
     point_pillar_scatter:
       num_features: 64
 
-    base_bev_backbone: #  出来时 384 
+    base_bev_backbone:
       resnet: true
       layer_nums: &layer_nums [3, 4, 5]
       layer_strides: [2, 2, 2]
@@ -109,7 +104,7 @@ model:
       num_upsample_filter: [128, 128, 128]
       compression: 4
       voxel_size: *voxel_size
-
+      
     flow_generator_args:
       feature_dim: 64  # Backbone 输出的特征维度
       backbone:
@@ -121,8 +116,7 @@ model:
         num_upsample_filter: [128, 128, 128]
         compression: 0
         voxel_size: *voxel_size
-
-    shrink_header: # 出来时 256
+    shrink_header:
       kernal_size: [ 3 ]
       stride: [ 1 ]
       padding: [ 1 ]
@@ -151,12 +145,14 @@ model:
 
 
 loss:
-  core_method: point_pillar_flow_loss
+  core_method: point_pillar_flow_motion_loss
   args:
     cls_weight: 1.0
     reg: 2.0
-    flow_weight: 50.0
+    traj: 0.5
+    flow_weight: 200.0
     mask_threshold: 0.5
+
 optimizer:
   core_method: Adam
   lr: 0.002
@@ -168,4 +164,3 @@ lr_scheduler:
   core_method: multistep #step, multistep and Exponential support
   gamma: 0.1
   step_size: [10, 20]
-
