@@ -180,12 +180,14 @@ class PointPillarFlowMotion(PointPillarWhere2comm):
                     [ffnet_t0_dict, ffnet_t1_dict],
                     return_both=True
                 )
-                feat_t0_64 = combined_feat_64[0::2]
-                feat_t1_64 = combined_feat_64[1::2]
-                feat_t1_384 = combined_feat_384[1::2]
+                # feat_t0_64 = combined_feat_64[0::2]
+                # feat_t1_64 = combined_feat_64[1::2]
+                feat_t0_384, feat_t1_384 = torch.chunk(combined_feat_384, 2, dim=0)
+                # feat_t0_384 = combined_feat_384[0::2]
+                # feat_t1_384 = combined_feat_384[1::2]
 
             # A. 预测 Flow (t0 -> t1)
-            flow_pred = self.flow_generator(feat_t0_64, feat_t1_64)
+            flow_pred = self.flow_generator(feat_t0_384, feat_t1_384)
             
             # B. 时间外推 (t1 -> t2)
             dt_01 = ffnet_time['t_0_1'].view(-1, 1, 1, 1).to(flow_pred.device)
@@ -258,7 +260,6 @@ class PointPillarFlowMotion(PointPillarWhere2comm):
         if 'object_bbx_center' in data_dict:
             # (B, N, 7) -> GT 中心的位置
             gt_centers = data_dict['object_bbx_center']
-            
             # 从融合后的特征图 (fused_feature) 上采样出物体特征
             # fused_feature: [B, 256, H, W]
             obj_feats = sample_features_from_coords(
@@ -266,7 +267,7 @@ class PointPillarFlowMotion(PointPillarWhere2comm):
                 gt_centers[..., :2], 
                 self.pc_range
             )
-            traj_preds = self.motion_head(obj_feats)
+            traj_preds = self.motion_head(obj_feats) # (B, N, pred_len*2)
             
             # 存入 output_dict
             output_dict['traj_preds'] = traj_preds

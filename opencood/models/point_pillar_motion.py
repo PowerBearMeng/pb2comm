@@ -1,8 +1,3 @@
-# -*- coding: utf-8 -*-
-# Author: Hao Xiang <haxiang@g.ucla.edu>, Runsheng Xu <rxx3386@ucla.edu>
-# License: TDG-Attribution-NonCommercial-NoDistrib
-
-
 from numpy import record
 import torch.nn as nn
 
@@ -198,7 +193,6 @@ class PointPillarMotion(nn.Module):
         if 'object_bbx_center' in data_dict:
             # (B, N, 7) -> 这里的 N 是 max_num (e.g. 100)
             gt_centers = data_dict['object_bbx_center']
-            
             # 2. 采样特征
             # fused_feature: [B, 256, H, W]
             # gt_centers[..., :2]: [B, N, 2] (x, y)
@@ -214,7 +208,6 @@ class PointPillarMotion(nn.Module):
             
             # 4. 存入 output_dict
             output_dict['traj_preds'] = traj_preds
-
         # ==================================================
 
         split_psm_single = self.regroup(psm_single, record_len)

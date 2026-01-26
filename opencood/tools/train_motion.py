@@ -62,8 +62,6 @@ def main():
 
     # optimizer setup
     optimizer = train_utils.setup_optimizer(hypes, model)
-
-
     # if we want to train from last checkpoint.
     if opt.model_dir:
         saved_path = opt.model_dir

@@ -332,7 +332,6 @@ class Where2comm(nn.Module):
                 x_fuse = backbone.deblocks[-1](x_fuse)
 
         else:
-            # (非多尺度的逻辑保持不变...)
             pass
         
         return x_fuse, communication_rates, {'comm_maps': comm_maps}

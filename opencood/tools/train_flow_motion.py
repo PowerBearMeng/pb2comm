@@ -21,7 +21,7 @@ def train_parser():
                         help='Continued training path')
     parser.add_argument('--fusion_method', '-f', default="intermediate",
                         help='passed to inference.')
-    parser.add_argument('--pretrained_path', default='opencood/ffnet_weight/latest.pth', 
+    parser.add_argument('--pretrained_path', default='', # opencood/ffnet_weight/latest.pth
                         help='Path to the pretrained model (Stage 1 checkpoint)')
     opt = parser.parse_args()
     return opt

@@ -85,7 +85,7 @@ model:
     anchor_number: *achor_num
     max_cav: *max_cav
     compression: 0 # compression rate
-    backbone_fix: true
+    backbone_fix: false
 
     pillar_vfe:
       use_norm: true
@@ -106,16 +106,8 @@ model:
       voxel_size: *voxel_size
       
     flow_generator_args:
-      feature_dim: 64  # Backbone 输出的特征维度
-      backbone:
-        resnet: true
-        layer_nums: &ffnet_layer_nums [3, 4, 5]
-        layer_strides: [2, 2, 2]
-        num_filters: &ffnet_num_filters [64, 128, 256]
-        upsample_strides: [1, 2, 4]
-        num_upsample_filter: [128, 128, 128]
-        compression: 0
-        voxel_size: *voxel_size
+      feature_dim: 384  # Backbone 输出的特征维度
+
     shrink_header:
       kernal_size: [ 3 ]
       stride: [ 1 ]
