@@ -90,7 +90,7 @@ class PointPillarMotion(nn.Module):
         self.pred_len = args.get('pred_len', 5) # 最好在 yaml 里加一个
         self.pc_range = args['lidar_range']
         self.motion_head = MotionHead(in_channels=c_dim, pred_len=self.pred_len)
-
+        self.detach_motion = args['detach_motion']
         if args['backbone_fix']:
             self.backbone_fix()
 
@@ -193,6 +193,12 @@ class PointPillarMotion(nn.Module):
         if 'object_bbx_center' in data_dict:
             # (B, N, 7) -> 这里的 N 是 max_num (e.g. 100)
             gt_centers = data_dict['object_bbx_center']
+            if self.detach_motion:
+                fused_feature = fused_feature.detach() # 截断！保护 Detection
+                # print("截断 Motion 分支的梯度")
+            else:   
+                fused_feature = fused_feature # 不截断！Motion 会改变 Backbone
+                # print("不截断 Motion 分支的梯度")
             # 2. 采样特征
             # fused_feature: [B, 256, H, W]
             # gt_centers[..., :2]: [B, N, 2] (x, y)

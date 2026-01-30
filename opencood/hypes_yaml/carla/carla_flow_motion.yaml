@@ -86,7 +86,8 @@ model:
     max_cav: *max_cav
     compression: 0 # compression rate
     backbone_fix: false
-
+    detach_motion: false
+    
     pillar_vfe:
       use_norm: true
       with_distance: false

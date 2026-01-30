@@ -13,11 +13,29 @@ class PointPillarFlowMotion(PointPillarWhere2comm):
         # 初始化 FlowGenerator
         self.flow_generator = FlowGenerator(args['flow_generator_args'])
         self.fusion_net = Where2comm(args['fusion_args'])
-        self.pred_len = args.get('pred_len', 5) # 预测未来多少个点
-        self.motion_head = MotionHead(in_channels=256, pred_len=self.pred_len)
-        
         # 记得把 pc_range 存下来，sample 特征时要用
         self.pc_range = args['lidar_range']
+        self.detach_motion = args['detach_motion']
+        # ================== 【新增 1】定义 Flow Encoder ==================
+        # 这是一个小型的卷积网络，负责把物理世界的速度 (dx, dy) 
+        # 翻译成神经网络喜欢的 32 维特征
+        self.flow_embedding_dim = 32  
+        
+        self.flow_encoder = nn.Sequential(
+            # 2 -> 32, 使用 3x3 卷积感知一点局部信息
+            nn.Conv2d(2, self.flow_embedding_dim, kernel_size=3, padding=1),
+            nn.BatchNorm2d(self.flow_embedding_dim),
+            nn.ReLU(inplace=True),
+            # 可选：再加一层 1x1 整合一下，单层其实也够用
+            nn.Conv2d(self.flow_embedding_dim, self.flow_embedding_dim, kernel_size=1),
+            nn.BatchNorm2d(self.flow_embedding_dim),
+            nn.ReLU(inplace=True)
+        )
+        self.pred_len = args.get('pred_len', 5) # 预测未来多少个点
+        motion_dim = 256
+        self.motion_head = MotionHead(in_channels=motion_dim+self.flow_embedding_dim , pred_len=self.pred_len)
+        
+        # ===============================================================
         if args['backbone_fix']:
             self.backbone_fix()
             print("冻结 Backbone 参数，用于 Finetune FlowNet")
@@ -257,22 +275,77 @@ class PointPillarFlowMotion(PointPillarWhere2comm):
 
         # ================== 【新增 3】 轨迹预测分支 ==================
         # 逻辑完全参考 PointPillarMotion
+        # if 'object_bbx_center' in data_dict:
+        #     # (B, N, 7) -> GT 中心的位置
+        #     gt_centers = data_dict['object_bbx_center']
+        #     # 从融合后的特征图 (fused_feature) 上采样出物体特征
+        #     # fused_feature: [B, 256, H, W]
+        #     obj_feats = sample_features_from_coords(
+        #         fused_feature, 
+        #         gt_centers[..., :2], 
+        #         self.pc_range
+        #     )
+        #     traj_preds = self.motion_head(obj_feats) # (B, N, pred_len*2)
+            
+        #     # 存入 output_dict
+        #     output_dict['traj_preds'] = traj_preds
+        # ==========================================================
+        # ================== 【修改 3】 轨迹预测分支 ==================
         if 'object_bbx_center' in data_dict:
-            # (B, N, 7) -> GT 中心的位置
             gt_centers = data_dict['object_bbx_center']
-            # 从融合后的特征图 (fused_feature) 上采样出物体特征
-            # fused_feature: [B, 256, H, W]
+            
+            # 【核心修改】根据开关决定是否截断梯度
+            if self.detach_motion:
+                base_feature = fused_feature.detach() # 截断！保护 Detection
+                # print("截断 Motion 分支的梯度")
+            else:
+                base_feature = fused_feature # 不截断！Motion 会改变 Backbone
+                # print("不截断 Motion 分支的梯度")
+            # 获取目标尺寸
+            H, W = base_feature.shape[2], base_feature.shape[3]
+            
+            # B. 处理 Flow 并编码
+            if flow_map_final is not None:
+                # 这里验证了尺寸其实是一样的！
+                # print("使用 Flow 进行轨迹预测")
+                # print(f"flow_map_final shape: {flow_map_final.shape}, target size: {(H, W)}")
+                # 1. 插值对齐尺寸 (因为 flow_map_final 可能是基于 384 特征算的低分辨率图)
+                flow_aligned = F.interpolate(
+                    flow_map_final, 
+                    size=(H, W), 
+                    mode='bilinear', 
+                    align_corners=True
+                )
+                
+                # 2. 编码: [B, 2, H, W] -> [B, 32, H, W]
+                # 这一步把“物理数值”变成了“语义特征”
+                flow_embedding = self.flow_encoder(flow_aligned)
+                
+                # 3. 拼接: [B, 256, H, W] + [B, 32, H, W] -> [B, 288, H, W]
+                features_for_motion = torch.cat([base_feature, flow_embedding], dim=1)
+                
+            else:
+                # 容错：如果没有 Flow (比如单帧测试)，拼一个全 0 的 Tensor
+                pass
+                dummy_flow = torch.zeros(
+                    base_feature.shape[0], 
+                    self.flow_embedding_dim, 
+                    H, W
+                ).to(base_feature.device)
+                features_for_motion = torch.cat([base_feature, dummy_flow], dim=1)
+
+            # C. 采样
+            # 现在的 features_for_motion 包含了“位置”和“速度”两方面信息
             obj_feats = sample_features_from_coords(
-                fused_feature, 
+                features_for_motion, 
                 gt_centers[..., :2], 
                 self.pc_range
             )
-            traj_preds = self.motion_head(obj_feats) # (B, N, pred_len*2)
             
-            # 存入 output_dict
+            # D. 预测
+            traj_preds = self.motion_head(obj_feats)
             output_dict['traj_preds'] = traj_preds
         # ==========================================================
-
         # 保存单车结果 (保持不变)
         split_psm_single = self.regroup(psm_single, record_len)
         split_rm_single = self.regroup(rm_single, record_len)
