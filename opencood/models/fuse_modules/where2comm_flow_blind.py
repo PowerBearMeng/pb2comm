@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from opencood.models.comm_modules.where2comm import Communication
+from opencood.models.comm_modules.where2comm_mfh_comm import Communication
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
 
 class ScaledDotProductAttention(nn.Module):
@@ -184,7 +184,7 @@ class Where2comm(nn.Module):
 
         self.communication = False
         self.round = 1
-        if 'communication' in args:
+        if 'communication' in args and args['blind'] is True:
             self.communication = True
             self.naive_communication = Communication(args['communication'])
             if 'round' in args['communication']:
@@ -220,7 +220,7 @@ class Where2comm(nn.Module):
         return split_x
 
     # ================== 【核心修改】 Forward ==================
-    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, heads=None, flow_map=None):
+    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, heads=None, flow_map=None,blind_spot_mask=None):
         """
         新增参数: flow_map (Tensor): [B, 2, H_orig, W_orig], 预测出的从 t1 到 t2 的位移
         """
@@ -271,7 +271,11 @@ class Where2comm(nn.Module):
                 if i==0:
                     if self.communication:
                         batch_confidence_maps = self.regroup(rm, record_len)
-                        comm_maps, communication_masks, communication_rates = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+                        comm_maps, communication_masks, communication_rates \
+                            = self.naive_communication(batch_confidence_maps, 
+                                 record_len, 
+                                 pairwise_t_matrix, 
+                                 blind_spot_mask=blind_spot_mask)
                         x_curr = x_curr * communication_masks
                     else:
                         communication_rates = torch.tensor(0).to(x.device)

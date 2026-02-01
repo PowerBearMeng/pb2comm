@@ -23,7 +23,7 @@ def test_parser():
     parser.add_argument('--model_dir', type=str, required=True,
                         help='Continued training path')
     parser.add_argument('--fusion_method', type=str,
-                        default='intermediate',
+                        default='intermediate_with_comm',
                         help='no, no_w_uncertainty, late, early or intermediate')
     parser.add_argument('--save_vis_n', type=int, default=10,
                         help='save how many numbers of visualization result?')

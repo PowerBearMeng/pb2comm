@@ -21,6 +21,7 @@ class Communication(nn.Module):
             self.init_gaussian_filter(kernel_size, c_sigma)
             self.gaussian_filter.requires_grad = False
         self.vis_debug = args.get('visualize', False)
+        self.print_debug = args.get('print_debug', False)
         if self.vis_debug:
             self.vis_interval = 1                        # 频率：每多少次保存一张图
             self.vis_save_dir = '/home/yty/mfh/code/inter/Where2comm/mfh_tool/pic'      # 路径：保存位置
@@ -49,14 +50,14 @@ class Communication(nn.Module):
         print(f"1. Raw Map Size (Full):           {total_pixels} pixels")
         print(f"2. Where2comm (Object Only):      {int(num_conf)} pixels")
         print(f"3. Ours (Object + BlindSpot):     {int(num_final)} pixels")
-        
+        save_ratio = 0.0 
         if num_conf > 0:
             save_ratio = 100 * (1 - num_final / num_conf)
             print(f"   => Further Reduction Rate:     {save_ratio:.2f}% (Saved vs Where2comm)")
         else:
             print(f"   => No objects detected to send.")
         print("---------------------------------------------------------------")
-        return save_ratio 
+        return save_ratio
 
     def _save_debug_image(self, ori_map, conf_mask, final_mask, T_ego2sender, b, k, save_ratio):
         """只负责画图和保存，包含核心的坐标变换逻辑"""
@@ -167,10 +168,10 @@ class Communication(nn.Module):
                     # -----------------------------------------------
                     # [调用] 调试逻辑：只在开启且处理第一个邻居时调用
                     # -----------------------------------------------
-                    if self.vis_debug and k == 1:
+                    if self.print_debug and k == 1:
                         # 打印数据
                         save_ratio = self._print_debug_info(b, k, H, W, conf_only_mask, combined_mask)
-                        # 画图保存
+                    if self.vis_debug and k == 1:
                         self._save_debug_image(
                             ori_communication_maps[k], # 原始置信度图
                             conf_only_mask,            # W2C Mask
