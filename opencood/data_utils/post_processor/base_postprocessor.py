@@ -461,6 +461,59 @@ class BasePostprocessor(object):
             object_ids.append(object_id)
 
         return object_np, mask, object_ids
+    def generate_object_center_carla_late_fusion_with_traj_id(self, cav_contents):
+        """
+        新增方法：在 late fusion 的基础上，通过坐标距离匹配找回真实的车辆 ID，
+        用于下游的轨迹预测 (Trajectory Prediction) 匹配。
+        """
+        # 1. 先调原函数拿到正确的坐标框和 Mask
+        # (此时 object_ids 全是 0,1,2,3... 是错的)
+        object_np, mask, _ = self.generate_object_center_carla_late_fusion(cav_contents)
+
+        # 2. 提取原始带真实 ID 的列表
+        cav_content = cav_contents[0]
+        if 'vehicles_single' in cav_content['params']:
+            raw_vehicles = cav_content['params']['vehicles_single']
+        else:
+            raw_vehicles = cav_content['params']['vehicles']
+
+        # 3. 建立真实 ID 和坐标的查找表
+        real_id_list = []
+        for v_info in raw_vehicles:
+            # 根据你刚才发的源码，CARLA 的真实 ID 在 'id' 里
+            if 'id' in v_info:
+                v_id = v_info['id']
+            else:
+                continue # 如果连真值里都没有 ID，那就跳过
+
+            # 根据源码，坐标在 '3d_location' 字典里
+            if '3d_location' in v_info:
+                loc = v_info['3d_location']
+                x, y = loc['x'], loc['y']
+                real_id_list.append((int(v_id), float(x), float(y)))
+
+        # 4. 根据坐标给 object_np 重新分配真实 ID
+        object_ids = []
+        valid_box_count = int(mask.sum())
+
+        for i in range(valid_box_count):
+            box_x, box_y = object_np[i][0], object_np[i][1]
+            min_dist = float('inf')
+            best_id = -1
+            
+            # 遍历寻找距离最近的真实车辆
+            for real_id, real_x, real_y in real_id_list:
+                dist = (box_x - real_x) ** 2 + (box_y - real_y) ** 2
+                if dist < min_dist:
+                    min_dist = dist
+                    best_id = real_id
+            
+            # 只要中心点误差小于 1.0 米，就认作是同一辆车
+            if min_dist < 0.5:
+                object_ids.append(best_id)
+            else:
+                object_ids.append(i) # 兜底：万一没匹配上，塞回原来的索引防报错
+        return object_np, mask, object_ids
     def generate_object_center_carla(self,
                                cav_contents,
                                reference_lidar_pose, return_visible_mask=False):

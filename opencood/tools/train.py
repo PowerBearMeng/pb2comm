@@ -72,7 +72,6 @@ def main():
     # optimizer setup
     optimizer = train_utils.setup_optimizer(hypes, model)
 
-
     # if we want to train from last checkpoint.
     if opt.model_dir:
         saved_path = opt.model_dir
@@ -93,6 +92,8 @@ def main():
     epoches = hypes['train_params']['epoches']
     # used to help schedule learning rate
     with_round_loss = False
+    # === 在进入训练循环前，初始化一个记录最佳 Loss 的变量 ===
+    best_val_loss = float('inf')  # 初始化为正无穷大
     for epoch in range(init_epoch, max(epoches, init_epoch)):
         for param_group in optimizer.param_groups:
             print('learning rate %f' % param_group["lr"])
@@ -176,6 +177,19 @@ def main():
             print('At epoch %d, the validation loss is %f' % (epoch,
                                                               valid_ave_loss))
             writer.add_scalar('Validate_Loss', valid_ave_loss, epoch)
+            # === 新增：保存最优模型逻辑 ===
+            if valid_ave_loss < best_val_loss:
+                best_val_loss = valid_ave_loss
+                print('Find a new best validation loss: %f at epoch %d, saving best model!' % (best_val_loss, epoch))
+                
+                # 1. 保存模型权重
+                torch.save(model.state_dict(),
+                           os.path.join(saved_path, 'best_model.pth'))
+                
+                # 2. 保存一个 txt 记录这是第几个 epoch
+                with open(os.path.join(saved_path, 'best_record.txt'), 'w') as f:
+                    f.write('Best Epoch: %d\nBest Validation Loss: %f' % (epoch, best_val_loss))
+            # ==============================
 
         if epoch % hypes['train_params']['save_freq'] == 0:
             torch.save(model.state_dict(),
@@ -188,7 +202,7 @@ def main():
     run_test = True
     if run_test:
         fusion_method = opt.fusion_method
-        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method {fusion_method}"
+        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method intermediate_with_comm"
         print(f"Running command: {cmd}")
         os.system(cmd)
 

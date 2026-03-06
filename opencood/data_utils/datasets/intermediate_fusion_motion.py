@@ -24,8 +24,6 @@ from opencood.utils.pcd_utils import \
     downsample_lidar_minimum
 from opencood.utils.transformation_utils import tfm_to_pose, x1_to_x2, x_to_world
 import opencood.utils.pcd_utils as pcd_utils
-from opencood.utils.transformation_utils import veh_side_rot_and_trans_to_trasnformation_matrix
-from opencood.utils.transformation_utils import inf_side_rot_and_trans_to_trasnformation_matrix
 import copy
 
 def load_json(path):

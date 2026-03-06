@@ -6,7 +6,7 @@
 """
 Implementation of V2VNet Fusion
 """
-
+import time
 from turtle import update
 import torch
 import torch.nn as nn
@@ -347,3 +347,141 @@ class Where2comm(nn.Module):
         
         return x_fuse, communication_rates, {'comm_maps': comm_maps}
 
+    # def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, heads=None):
+    #     """
+    #     Fusion forwarding.
+    #     """
+    #     _, C, H, W = x.shape
+    #     B, L = pairwise_t_matrix.shape[:2]
+
+    #     # (B,L,L,2,3)
+    #     pairwise_t_matrix = pairwise_t_matrix[:,:,:,[0, 1],:][:,:,:,:,[0, 1, 3]] # [B, L, L, 2, 3]
+    #     pairwise_t_matrix[...,0,1] = pairwise_t_matrix[...,0,1] * H / W
+    #     pairwise_t_matrix[...,1,0] = pairwise_t_matrix[...,1,0] * W / H
+    #     pairwise_t_matrix[...,0,2] = pairwise_t_matrix[...,0,2] / (self.downsample_rate * self.discrete_ratio * W) * 2
+    #     pairwise_t_matrix[...,1,2] = pairwise_t_matrix[...,1,2] / (self.downsample_rate * self.discrete_ratio * H) * 2
+
+    #     # ==================== 【新增】用于存放单向(路侧)通信率 ====================
+    #     infra_rates = []
+    #     # =====================================================================
+    #     selection_time = 0.0 # <--- 【新增】初始化选择时间
+    #     if self.multi_scale:
+    #         ups = []
+    #         with_resnet = True if hasattr(backbone, 'resnet') else False
+    #         if with_resnet:
+    #             feats = backbone.resnet(x)
+            
+    #         for i in range(self.num_levels):
+    #             x = feats[i] if with_resnet else backbone.blocks[i](x)
+
+    #             ############ 1. Communication (Mask the features) #########
+    #             if i==0:
+    #                 if self.communication:
+    #                     # ================== 【新增】开始计时特征选择 ==================
+    #                     if torch.cuda.is_available(): torch.cuda.synchronize()
+    #                     t_sel_start = time.time()
+    #                     # ==============================================================
+    #                     batch_confidence_maps = self.regroup(rm, record_len)
+    #                     comm_maps, communication_masks, _ = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+    #                     x = x * communication_masks
+    #                     # ================== 【新增】结束计时特征选择 ==================
+    #                     if torch.cuda.is_available(): torch.cuda.synchronize()
+    #                     selection_time += (time.time() - t_sel_start) 
+    #                     print(f'selection_time:{selection_time}')
+    #                     # ==============================================================
+    #                     # ======== 【新增】单独计算路侧 (index 1) 的通信率 ========
+    #                     # 兼容 communication_masks 是 Tensor 的情况
+    #                     if isinstance(communication_masks, torch.Tensor):
+    #                         split_masks = self.regroup(communication_masks, record_len)
+    #                     else:
+    #                         split_masks = communication_masks
+
+    #                     for b in range(B):
+    #                         if record_len[b] > 1: # 确保存在路侧节点
+    #                             infra_mask = split_masks[b][1] # 0是Ego车, 1是路侧
+    #                             infra_rates.append(infra_mask.float().mean())
+    #                     # =========================================================
+
+    #                 else:
+    #                     comm_maps = None 
+                
+    #             ############ 2. Split the confidence map #######################
+    #             batch_node_features = self.regroup(x, record_len)
+                
+    #             ############ 3. Fusion ####################################
+    #             x_fuse = []
+    #             for b in range(B):
+    #                 N = record_len[b]
+    #                 t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
+    #                 node_features = batch_node_features[b]
+    #                 C_feat, H_feat, W_feat = node_features.shape[1:]
+    #                 neighbor_feature = warp_affine_simple(node_features,
+    #                                                 t_matrix[0, :, :, :],
+    #                                                 (H_feat, W_feat))
+    #                 x_fuse.append(self.fuse_modules[i](neighbor_feature))
+    #             x_fuse = torch.stack(x_fuse)
+
+    #             ############ 4. Deconv ####################################
+    #             if len(backbone.deblocks) > 0:
+    #                 ups.append(backbone.deblocks[i](x_fuse))
+    #             else:
+    #                 ups.append(x_fuse)
+                
+    #         if len(ups) > 1:
+    #             x_fuse = torch.cat(ups, dim=1)
+    #         elif len(ups) == 1:
+    #             x_fuse = ups[0]
+            
+    #         if len(backbone.deblocks) > self.num_levels:
+    #             x_fuse = backbone.deblocks[-1](x_fuse)
+                
+    #     else:
+    #         ############ 1. Split the features #######################
+    #         batch_node_features = self.regroup(x, record_len)
+    #         batch_confidence_maps = self.regroup(rm, record_len)
+
+    #         ############ 2. Communication (Mask the features) #########
+    #         if self.communication:
+    #             comm_maps, communication_masks, _ = self.naive_communication(batch_confidence_maps, record_len, pairwise_t_matrix)
+                
+    #             # ======== 【新增】单独计算路侧 (index 1) 的通信率 ========
+    #             if isinstance(communication_masks, torch.Tensor):
+    #                 split_masks = self.regroup(communication_masks, record_len)
+    #             else:
+    #                 split_masks = communication_masks
+
+    #             for b in range(B):
+    #                 if record_len[b] > 1:
+    #                     infra_mask = split_masks[b][1] # 提取路侧掩码
+    #                     infra_rates.append(infra_mask.float().mean())
+    #             # =========================================================
+    #         else:
+    #             comm_maps = None 
+            
+    #         ############ 3. Fusion ####################################
+    #         x_fuse = []
+    #         for b in range(B):
+    #             N = record_len[b]
+    #             t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
+    #             node_features = batch_node_features[b]
+    #             if self.communication:
+    #                 # 兼容 Tensor 或 list 形式的 mask
+    #                 mask_to_apply = communication_masks[b] if isinstance(communication_masks, list) else self.regroup(communication_masks, record_len)[b]
+    #                 node_features = node_features * mask_to_apply
+                
+    #             neighbor_feature = warp_affine_simple(node_features,
+    #                                             t_matrix[0, :, :, :],
+    #                                             (H, W))
+    #             x_fuse.append(self.fuse_modules(neighbor_feature))
+    #         x_fuse = torch.stack(x_fuse)
+        
+    #     # ==================== 【新增】覆盖返回的通信率 ====================
+    #     if len(infra_rates) > 0:
+    #         # 算出这一个 Batch 里，所有路侧发给车端的平均稀疏率
+    #         communication_rates = sum(infra_rates) / len(infra_rates)
+    #     else:
+    #         communication_rates = torch.tensor(0.0).to(x.device)
+    #     # =================================================================
+
+    #     return x_fuse, communication_rates, {'comm_maps': comm_maps}
+    

@@ -1,10 +1,10 @@
 name: carla_where2comm_motion
-data_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
-test_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
-traj_train : "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train_traj_coop.json"
-traj_test : "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test_traj_coop.json"
+data_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/test.json"
+test_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/test.json"
+traj_train : "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/train_traj_coop.json"
+traj_test : "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/test_traj_coop.json"
 
 noise_setting:
   add_noise: False
@@ -44,8 +44,7 @@ preprocess:
     max_voxel_test: 70000
   # lidar range for each individual cav. Format: xyzxyz minmax
   cav_lidar_range: &cav_lidar [-88, -68, -2, 88, 68, 4]
-  # [-56, -30, -2, 56, 30, 3] demo 
-  # record [-80, -60, -3, 80, 60, 4]
+  
 data_augment:
   - NAME: random_world_flip
     ALONG_AXIS_LIST: [ 'x' ]
@@ -62,13 +61,13 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.64
-    w: 1.93
+    l: 4.87
+    w: 1.97
     h: 1.55
-
     r: [0, 90]  
     feature_stride: 2
     num: &achor_num 2
+    z : 0.84
   target_args:
     pos_threshold: 0.6
     neg_threshold: 0.45
@@ -85,9 +84,10 @@ model:
     lidar_range: *cav_lidar
     anchor_number: *achor_num
     max_cav: *max_cav
-    compression: 0 # compression rate
+    compression: 4 # compression rate
     backbone_fix: false
-
+    detach_motion: false
+    
     pillar_vfe:
       use_norm: true
       with_distance: false
@@ -121,6 +121,8 @@ model:
       only_attention: true
       communication:
         thre: 0.01
+        risk: false
+        risk_threshold : 0.1
         gaussian_smooth:
           k_size: 5
           c_sigma: 1.0

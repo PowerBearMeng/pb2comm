@@ -1,6 +1,6 @@
 from numpy import record
 import torch.nn as nn
-
+import time
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
@@ -125,6 +125,11 @@ class PointPillarMotion(nn.Module):
         return split_x
 
     def forward(self, data_dict):
+        # ================== 【新增】1. 开始计时前同步 GPU ==================
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t_start = time.time()
+        # ===============================================================
         voxel_features = data_dict['processed_lidar']['voxel_features']
         voxel_coords = data_dict['processed_lidar']['voxel_coords']
         voxel_num_points = data_dict['processed_lidar']['voxel_num_points']
@@ -159,6 +164,17 @@ class PointPillarMotion(nn.Module):
         psm_single = self.cls_head(spatial_features_2d)
         rm_single = self.reg_head(spatial_features_2d)
 
+        # ================== 【新增】2. 置信度计算完毕，停止计时 ==================
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        t_end = time.time()
+        
+        total_time = t_end - t_start
+        # 获取当前批次的节点总数 (由于 where2comm 会把多车拼在一个 batch 运算)
+        cav_num = sum(record_len).item() if isinstance(record_len, torch.Tensor) else sum(record_len)
+        time_to_req_map_single_agent = total_time / cav_num  # 单车耗时
+        # ===================================================================
+
         # print('spatial_features_2d: ', spatial_features_2d.shape)
         if self.multi_scale:
             fused_feature, communication_rates, result_dict = self.fusion_net(batch_dict['spatial_features'],
@@ -185,7 +201,37 @@ class PointPillarMotion(nn.Module):
                        'rm': rm
                        }
         output_dict.update(result_dict)
+        # ================== 【新增】3. 计算真实的(压缩后)数据量大小 ==================
+        # 提取维度信息
+        N, C, H, W = spatial_features_2d.shape
+        print(f"N:{N},C:{C},H:{H},W:{W}")
+        rate_val = communication_rates.item() if isinstance(communication_rates, torch.Tensor) else communication_rates
+
+        # ---------------------------------------------------------------------
+        # 1. 真实的 Confidence/Request Map 大小 (二值掩码压缩)
+        # 论文中 Request Map 会被转为单通道的 [H, W] 的空间概率图，然后通过阈值变成 二值 Mask。
+        # 传输二值 Mask，每个空间网格仅需 1 bit。
+        # 单车 Request Map 大小 = (H * W) bits = (H * W) / 8 Bytes
+        # ---------------------------------------------------------------------
+        req_map_bytes_per_agent = (H * W) / 8.0 
+        req_map_bytes = req_map_bytes_per_agent   # 算上当前 Batch 里所有的车
         
+        # ---------------------------------------------------------------------
+        # 2. 真实的 Transmitted Feature 大小 (稀疏发送 + FP16量化)
+        # 只发送选中的特征格子，数量为: H * W * rate_val
+        # 且自动驾驶传输默认使用 FP16 (float16)，即每个数字占 2 Bytes (而不是默认的4 Bytes)
+        # 单车特征大小 = 被选中的像素个数 * 通道数(C) * 2 Bytes
+        # ---------------------------------------------------------------------
+        selected_pixels_per_agent = H * W * rate_val
+        print(rate_val)
+        transmitted_bytes_per_agent = selected_pixels_per_agent * C // 4 * 4.0
+        transmitted_bytes = transmitted_bytes_per_agent 
+
+        # 存入输出字典 (与之前一样，外面的推理脚本不需要改)
+        output_dict['time_to_req_map'] = time_to_req_map_single_agent
+        output_dict['req_map_bytes'] = req_map_bytes
+        output_dict['transmitted_bytes'] = transmitted_bytes
+        # ===================================================================
         # ==================================================
         # 【新增】轨迹预测分支
         # ==================================================

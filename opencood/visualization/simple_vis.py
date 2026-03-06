@@ -3,7 +3,8 @@ import numpy as np
 
 import opencood.visualization.simple_plot3d.canvas_3d as canvas_3d
 import opencood.visualization.simple_plot3d.canvas_bev as canvas_bev
-
+import matplotlib
+matplotlib.use('Agg') # 强行告诉它：不管有没有屏幕，都在后台画
 def visualize(pred_box_tensor, gt_tensor, pcd, pc_range, save_path, method='3d', vis_gt_box=True, vis_pred_box=True, left_hand=False, uncertainty=None):
     """
     Visualize the prediction, ground truth with point cloud together.

@@ -220,7 +220,8 @@ class Where2comm(nn.Module):
         return split_x
 
     # ================== 【核心修改】 Forward ==================
-    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, heads=None, flow_map=None,blind_spot_mask=None):
+    def forward(self, x, rm, record_len, pairwise_t_matrix, backbone=None, heads=None, 
+                flow_map=None, blind_spot_mask=None, risk_map=None, current_epoch=None):
         """
         新增参数: flow_map (Tensor): [B, 2, H_orig, W_orig], 预测出的从 t1 到 t2 的位移
         """
@@ -273,15 +274,17 @@ class Where2comm(nn.Module):
                         batch_confidence_maps = self.regroup(rm, record_len)
                         comm_maps, communication_masks, communication_rates \
                             = self.naive_communication(batch_confidence_maps, 
-                                 record_len, 
-                                 pairwise_t_matrix, 
-                                 blind_spot_mask=blind_spot_mask)
+                                record_len, 
+                                pairwise_t_matrix, 
+                                blind_spot_mask=blind_spot_mask,
+                                risk_map=risk_map,
+                                current_epoch=current_epoch)
                         x_curr = x_curr * communication_masks
                     else:
                         communication_rates = torch.tensor(0).to(x.device)
                         comm_maps = None 
                 
-                ############ 2. Split #######################
+                ############ 2. Split #######`l################
                 batch_node_features = self.regroup(x_curr, record_len)
                 
                 ############ 3. Fusion (空间融合) ###########

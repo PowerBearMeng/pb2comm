@@ -110,9 +110,26 @@ def main():
             # first argument is always your output dictionary,
             # second argument is always your label dictionary.
             final_loss = criterion(output_dict, batch_data['ego']['label_dict'])
-            if len(output_dict) > 2:
+            # if len(output_dict) > 2:
+            #     single_loss_v = criterion(output_dict, batch_data['ego']['label_dict_single_v'], prefix='_single_v')
+            #     single_loss_i = criterion(output_dict, batch_data['ego']['label_dict_single_i'], prefix='_single_i')
+            #     if 'fusion_args' in hypes['model']['args']:
+            #         if 'communication' in hypes['model']['args']['fusion_args']:
+            #             comm = hypes['model']['args']['fusion_args']['communication']
+            #             if ('round' in comm) and comm['round'] > 1:
+            #                 round_loss_v = 0
+            #                 with_round_loss = True
+            #                 for round_id in range(1, comm['round']):
+            #                     round_loss_v += criterion(output_dict, batch_data['ego']['label_dict'], prefix='_v{}'.format(round_id))
+            # ==================== 【修改点：用更严谨的 key 检查代替长度检查】 ====================
+            if 'label_dict_single_v' in batch_data['ego']:
                 single_loss_v = criterion(output_dict, batch_data['ego']['label_dict_single_v'], prefix='_single_v')
                 single_loss_i = criterion(output_dict, batch_data['ego']['label_dict_single_i'], prefix='_single_i')
+                
+                # 别忘了把辅助 Loss 加到总 Loss 里（如果你原来的代码里是这么写的）
+                final_loss += single_loss_v + single_loss_i 
+
+                # 保持你原来的多轮通信 Loss 逻辑不变
                 if 'fusion_args' in hypes['model']['args']:
                     if 'communication' in hypes['model']['args']['fusion_args']:
                         comm = hypes['model']['args']['fusion_args']['communication']
@@ -121,13 +138,13 @@ def main():
                             with_round_loss = True
                             for round_id in range(1, comm['round']):
                                 round_loss_v += criterion(output_dict, batch_data['ego']['label_dict'], prefix='_v{}'.format(round_id))
-
+            # ======================================================================================
             criterion.logging(epoch, i, len(train_loader), writer)
-
-            if len(output_dict) > 2:
-                final_loss += single_loss_v + single_loss_i
-                if with_round_loss:
-                    final_loss += round_loss_v
+            
+            # if len(output_dict) > 2:
+            #     final_loss += single_loss_v + single_loss_i
+            #     if with_round_loss:
+            #         final_loss += round_loss_v
 
             # back-propagation
             final_loss.backward()
@@ -153,7 +170,7 @@ def main():
 
                     final_loss = criterion(ouput_dict,
                                            batch_data['ego']['label_dict'])
-                    if len(output_dict) > 2:
+                    if 'label_dict_single_v' in batch_data['ego']:
                         single_loss_v = criterion(output_dict, batch_data['ego']['label_dict_single_v'], prefix='_single_v')
                         single_loss_i = criterion(output_dict, batch_data['ego']['label_dict_single_i'], prefix='_single_i')
                         final_loss += single_loss_v + single_loss_i
@@ -183,7 +200,7 @@ def main():
     run_test = True
     if run_test:
         fusion_method = opt.fusion_method
-        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method {fusion_method}"
+        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method intermediate_with_comm"
         print(f"Running command: {cmd}")
         os.system(cmd)
 

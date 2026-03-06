@@ -34,7 +34,7 @@ def load_json(path):
     with open(path, mode="r") as f:
         data = json.load(f)
     return data
-class LateFusionDatasetCarla(BaseDataset):
+class LateFusionDatasetMotion(BaseDataset):
     """
     This class is for intermediate fusion where each vehicle transmit the
     detection outputs to ego.
@@ -75,14 +75,29 @@ class LateFusionDatasetCarla(BaseDataset):
 
         if self.train:
             split_dir = params['root_dir']
+            traj_json_path = params['traj_train']
         else:
             split_dir = params['validate_dir']
+            traj_json_path = params['traj_test']
 
         self.root_dir = params['data_dir']
 
         self.split_info = load_json(split_dir)
         co_datainfo = load_json(os.path.join(self.root_dir, 'cooperative/data_info.json'))
         self.co_data = OrderedDict()
+        # =========================================================
+        # 【修改】无条件加载轨迹数据库 (Train & Test 通用)
+        # =========================================================
+        self.pred_len = 5
+        self.traj_database = {}       
+        if os.path.exists(traj_json_path):
+            print(f"[Dataset] (Debug Mode) Loading trajectory labels from {traj_json_path} ...")
+            self.traj_database = load_json(traj_json_path)
+            print(f"[Dataset] Trajectory labels loaded. Count: {len(self.traj_database)}")
+        else:
+            print(f"[Dataset] Warning: {traj_json_path} not found. Trajectory prediction will be skipped.")
+            raise FileNotFoundError(f"{traj_json_path} not found.")
+        ################################################################################
         for frame_info in co_datainfo:
             veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
             self.co_data[veh_frame_id] = frame_info
@@ -124,7 +139,7 @@ class LateFusionDatasetCarla(BaseDataset):
         data[1]['ego'] = False
  
         data[0]['params'] = OrderedDict()
-        # data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))['objects']
+        data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))['objects']
 
         vehicle_pose = load_json(os.path.join(self.root_dir,'vehicle-side/label/lidar/'+str(veh_frame_id)+'.json'))
         vehicle_sensor_pose = vehicle_pose['sensor_pose']
@@ -133,6 +148,12 @@ class LateFusionDatasetCarla(BaseDataset):
 
         vehicle_lidar_path = os.path.join(self.root_dir, 'vehicle-side/velodyne/{}.bin'.format(veh_frame_id))
         data[0]['lidar_np'], _ = pcd_utils.read_bin(vehicle_lidar_path)
+                # motion
+        if veh_frame_id in self.traj_database:
+            data[0]['traj_gt_record'] = self.traj_database[veh_frame_id]
+        else:
+            data[0]['traj_gt_record'] = None
+        
         if self.clip_pc:
             data[0]['lidar_np'] = data[0]['lidar_np'][data[0]['lidar_np'][:,0]>0]
 
@@ -146,22 +167,6 @@ class LateFusionDatasetCarla(BaseDataset):
         infra_lidar_path = os.path.join(self.root_dir, 'infrastructure-side/velodyne/{}.bin'.format(veh_frame_id))
         data[1]['lidar_np'], _ = pcd_utils.read_bin(infra_lidar_path)
         
-        # ------------------- 核心修改区域 -------------------
-        if self.train:
-            # 训练时，保持各自的单车视角
-            data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))['objects']
-            
-            # 注意：如果你的路侧标签没有做格式转换，训练时如果随到了路侧也会报错。
-            # 为了安全起见，如果不训练路侧模型，可以直接置空：
-            data[1]['params']['vehicles'] = [] 
-        else:
-            # 推理/测试时：
-            # 1. 车端强行读取上帝视角（World）作为GT，并且必须存在 'vehicles' 这个键里！
-            data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))['objects']
-            
-            # 2. 路侧必须为空列表，防止报错！
-            data[1]['params']['vehicles'] = []
-        # ----------------------------------------------------
         # data[1]['params']['vehicles'] = load_json(os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id)))['objects']
 
         # vehicle_pose = load_json(os.path.join(self.root_dir,'vehicle-side/label/lidar/'+str(veh_frame_id)+'.json'))
@@ -229,7 +234,45 @@ class LateFusionDatasetCarla(BaseDataset):
                 anchors=anchor_box,
                 mask=object_bbx_mask)
         selected_cav_processed.update({'label_dict': label_dict})
+        traj_record = selected_cav_base.get('traj_gt_record')
+        max_num = self.params['postprocess']['max_num']
 
+        gt_traj = np.zeros((max_num, self.pred_len, 2), dtype=np.float32)
+        gt_traj_mask = np.zeros((max_num, self.pred_len), dtype=np.float32)
+
+        if traj_record is not None:
+            saved_ids = traj_record['gt_ids']
+            saved_trajs = traj_record['gt_traj']
+            saved_masks = traj_record['gt_traj_mask']
+
+            id_to_idx = {str(uid): i for i, uid in enumerate(saved_ids)}
+            # ========== 【新增：观察到底能不能匹配上】 ==========
+            match_count = 0
+            for k, query_id in enumerate(object_ids):
+                if k >= max_num: break
+                if str(query_id) in id_to_idx:
+                    src_idx = id_to_idx[str(query_id)]
+                    gt_traj[k] = saved_trajs[src_idx]
+                    gt_traj_mask[k] = saved_masks[src_idx]
+                    match_count += 1
+            
+            if match_count == 0 and len(object_ids) > 0:
+                print(f"\n[DEBUG-Dataset] ❌ 完蛋，一个都没匹配上！")
+                print(f"   当前帧检测到的 object_ids (从单帧标签读取): {object_ids}")
+                print(f"   当前帧轨迹库里的 saved_ids (从轨迹库读取): {saved_ids}")
+            # ====================================================
+            for k, query_id in enumerate(object_ids):
+                if k >= max_num:
+                    break
+                if str(query_id) in id_to_idx:
+                    src_idx = id_to_idx[str(query_id)]
+                    gt_traj[k] = saved_trajs[src_idx]
+                    gt_traj_mask[k] = saved_masks[src_idx]
+
+        selected_cav_processed.update({
+            'object_traj': gt_traj,
+            'object_traj_mask': gt_traj_mask
+        })
         return selected_cav_processed
 
     def generate_object_center(self,
@@ -259,17 +302,8 @@ class LateFusionDatasetCarla(BaseDataset):
         object_ids : list
             Length is number of bbx in current sample.
         """
-        # # ===== 新增代码开始 =====
-        # cav_content = cav_contents[0]
-        # if not self.train and 'vehicles_global' in cav_content['params']:
-        #     # 测试时用全局 GT（调用和 intermediate 一样的方法）
-        #     return self.post_processor.generate_object_center_carla_late_fusion(cav_contents, reference_lidar_pose)
-        # else:
-        #     # 训练时用单车 GT
-        #     return self.post_processor.generate_object_center_carla_late_fusion(cav_contents)
-        # # ===== 新增代码结束 =====
 
-        return self.post_processor.generate_object_center_carla_late_fusion(cav_contents) 
+        return self.post_processor.generate_object_center_carla_late_fusion_with_traj_id(cav_contents) 
         
     def get_item_train(self, base_data_dict):
         processed_data_dict = OrderedDict()
@@ -341,7 +375,78 @@ class LateFusionDatasetCarla(BaseDataset):
             processed_data_dict.update({update_cav: selected_cav_processed})
 
         return processed_data_dict
+    def collate_batch_train(self, batch):
+        """
+        Customized collate function for pytorch dataloader during training
+        for early and late fusion dataset. (Added Trajectory Support)
+        """
+        # during training, we only care about ego.
+        output_dict = {'ego': {}}
 
+        object_bbx_center = []
+        object_bbx_mask = []
+        processed_lidar_list = []
+        label_dict_list = []
+        
+        # ==================== 【新增 1：初始化轨迹与 ID 列表】 ====================
+        object_ids = []
+        object_traj_list = []
+        object_traj_mask_list = []
+        # ========================================================================
+
+        if self.visualize:
+            origin_lidar = []
+
+        for i in range(len(batch)):
+            ego_dict = batch[i]['ego']
+            object_bbx_center.append(ego_dict['object_bbx_center'])
+            object_bbx_mask.append(ego_dict['object_bbx_mask'])
+            processed_lidar_list.append(ego_dict['processed_lidar'])
+            label_dict_list.append(ego_dict['label_dict'])
+
+            # ==================== 【新增 2：加入批次列表】 ====================
+            object_ids.append(ego_dict.get('object_ids', []))
+            object_traj_list.append(ego_dict['object_traj'])
+            object_traj_mask_list.append(ego_dict['object_traj_mask'])
+            # ================================================================
+
+            if self.visualize:
+                origin_lidar.append(ego_dict['origin_lidar'])
+
+        # convert to numpy, (B, max_num, 7)
+        object_bbx_center = torch.from_numpy(np.array(object_bbx_center))
+        object_bbx_mask = torch.from_numpy(np.array(object_bbx_mask))
+
+        # ==================== 【新增 3：转换为 Tensor】 ====================
+        object_traj = torch.from_numpy(np.array(object_traj_list))
+        object_traj_mask = torch.from_numpy(np.array(object_traj_mask_list))
+        # ==================================================================
+
+        processed_lidar_torch_dict = \
+            self.pre_processor.collate_batch(processed_lidar_list)
+        label_torch_dict = \
+            self.post_processor.collate_batch(label_dict_list)
+            
+        output_dict['ego'].update({'object_bbx_center': object_bbx_center,
+                                   'object_bbx_mask': object_bbx_mask,
+                                   'processed_lidar': processed_lidar_torch_dict,
+                                   # 严格保留你原本处理 anchor_box 的方式
+                                   'anchor_box': torch.from_numpy(ego_dict['anchor_box']), 
+                                   'label_dict': label_torch_dict,
+                                   # ==================== 【新增 4：更新到最终输出字典】 ====================
+                                   'object_ids': object_ids[0] if len(object_ids) > 0 else [], 
+                                   'object_traj': object_traj,
+                                   'object_traj_mask': object_traj_mask
+                                   # ======================================================================
+                                   })
+                                   
+        if self.visualize:
+            origin_lidar = \
+                np.array(downsample_lidar_minimum(pcd_np_list=origin_lidar))
+            origin_lidar = torch.from_numpy(origin_lidar)
+            output_dict['ego'].update({'origin_lidar': origin_lidar})
+
+        return output_dict
     def collate_batch_test(self, batch):
         """
         Customized collate function for pytorch dataloader during testing
@@ -376,6 +481,12 @@ class LateFusionDatasetCarla(BaseDataset):
             object_bbx_mask = \
                 torch.from_numpy(np.array([cav_content['object_bbx_mask']]))
             object_ids = cav_content['object_ids']
+            # ========== 【修复 2：加入轨迹 Tensor 转换】 ==========
+            object_traj = \
+                torch.from_numpy(np.array([cav_content['object_traj']]))
+            object_traj_mask = \
+                torch.from_numpy(np.array([cav_content['object_traj_mask']]))
+            # ====================================================
 
             # the anchor box is the same for all bounding boxes usually, thus
             # we don't need the batch dimension.
@@ -415,6 +526,8 @@ class LateFusionDatasetCarla(BaseDataset):
 
             output_dict[cav_id].update({'object_bbx_center': object_bbx_center,
                                         'object_bbx_mask': object_bbx_mask,
+                                        'object_traj': object_traj,           # <--- 加上
+                                        'object_traj_mask': object_traj_mask, # <--- 加上
                                         'processed_lidar': processed_lidar_torch_dict,
                                         'label_dict': label_torch_dict,
                                         'object_ids': object_ids,

@@ -10,12 +10,15 @@ import torch.nn as nn
 from opencood.models.sub_modules.pillar_vfe import PillarVFE
 from opencood.models.sub_modules.point_pillar_scatter import PointPillarScatter
 from opencood.models.sub_modules.base_bev_backbone import BaseBEVBackbone
-
+# ==================== 【新增 1】导入所需模块 ====================
+from opencood.models.sub_modules.motion_head import MotionHead
+from opencood.models.point_pillar_motion import sample_features_from_coords
+# ================================================================
 
 class PointPillar(nn.Module):
     def __init__(self, args):
         super(PointPillar, self).__init__()
-
+        self.pc_range = args['lidar_range']
         # PIllar VFE
         self.pillar_vfe = PillarVFE(args['pillar_vfe'],
                                     num_point_features=4,
@@ -35,6 +38,10 @@ class PointPillar(nn.Module):
                                   kernel_size=1) # BIN_NUM = 2
         else:
             self.use_dir = False
+        # self.open_motion = True
+        # self.pred_len = 5
+        # motion_dim = 384
+        # self.motion_head = MotionHead(in_channels=motion_dim , pred_len=self.pred_len)
 
     def forward(self, data_dict):
 
@@ -61,5 +68,25 @@ class PointPillar(nn.Module):
         if self.use_dir:
             dm = self.dir_head(spatial_features_2d)
             output_dict.update({'dm': dm})
-
+        
+        # # ==================== 【新增 3】轨迹预测分支 ====================
+        # if 'object_bbx_center' in data_dict and self.open_motion:
+        #     gt_centers = data_dict['object_bbx_center']
+        #     # ========== 【新增打印】 ==========
+        #     if gt_centers.shape[1] == 0: # 假设维度是 [B, N, 7]，N为0说明没车
+        #         print("\n[DEBUG-Model] ⚠️ 这一帧 gt_centers 里根本没有车！")
+        #     # ==================================
+        #     # 直接从 384 维的 BEV 特征图中提取对应坐标的特征
+        #     obj_feats = sample_features_from_coords(
+        #         spatial_features_2d, 
+        #         gt_centers[..., :2], 
+        #         self.pc_range
+        #     )
+            
+        #     # 经过 MotionHead 预测轨迹
+        #     traj_preds = self.motion_head(obj_feats)
+        #     output_dict['traj_preds'] = traj_preds
+        # # ================================================================
+        # else:
+        #    print("\n[DEBUG-Model] ❌ 没进轨迹预测分支！'object_bbx_center' 是否存在:", 'object_bbx_center' in data_dict)
         return output_dict

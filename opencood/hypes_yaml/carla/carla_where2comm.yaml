@@ -1,13 +1,8 @@
-name: carla_where2comm_max_nomulti_resnet
-# data_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure"
-# root_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/train.json"
-# validate_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
-# test_dir: "/home/yty/mfh/record/cooperative-vehicle-infrastructure/test.json"
-
-data_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure"
-root_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/train.json"
-validate_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
-test_dir: "/home/yty/mfh/carla_data/town12_t_4/cooperative-vehicle-infrastructure/test.json"
+name: carla_where2comm
+data_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure"
+root_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/train.json"
+validate_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/test.json"
+test_dir: "/home/yty/mfh/carla_data/town12_t_6/cooperative-vehicle-infrastructure/test.json"
 
 noise_setting:
   add_noise: False
@@ -24,8 +19,8 @@ yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 2
   epoches: 31
-  eval_freq: 10
-  save_freq: 10
+  eval_freq: 2
+  save_freq: 2
   max_cav: &max_cav 2
 
 
@@ -65,14 +60,12 @@ postprocess:
   gt_range: *cav_lidar
   anchor_args:
     cav_lidar_range: *cav_lidar
-    l: 4.64
-    w: 1.93
+    l: 4.87
+    w: 1.97
     h: 1.55
-    # l: 4.5
-    # w: 1.9
-    # h: 1.5
     r: [0, 90]  
     feature_stride: 2
+    z : 0.84
     num: &achor_num 2
   target_args:
     pos_threshold: 0.6

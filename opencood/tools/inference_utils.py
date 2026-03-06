@@ -119,8 +119,15 @@ def inference_intermediate_fusion_withcomm(batch_data, model, dataset):
         dataset.post_process(batch_data,
                              output_dict)
     comm_rates = output_dict['ego']['comm_rate']
-    return pred_box_tensor, pred_score, gt_box_tensor, comm_rates
+    # # ================== 【新增】从字典中提取你算好的三个指标 ==================
+    # time_to_req_map = output_dict['ego'].get('time_to_req_map', 0.0)
+    # req_map_bytes = output_dict['ego'].get('req_map_bytes', 0.0)
+    # transmitted_bytes = output_dict['ego'].get('transmitted_bytes', 0.0)
+    # # =========================================================================
+    # print(f'time_to_req_map:{time_to_req_map}')
+    # return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_to_req_map, req_map_bytes, transmitted_bytes
     
+    return pred_box_tensor, pred_score, gt_box_tensor, comm_rates
 def inference_intermediate_fusion(batch_data, model, dataset):
     """
     Model inference for early fusion.

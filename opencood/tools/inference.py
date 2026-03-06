@@ -30,7 +30,7 @@ def test_parser():
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
                              'in npy file')
-    parser.add_argument('--eval_epoch', type=str, default=None,
+    parser.add_argument('--eval_epoch', type=str, default=21,
                         help='Set the checkpoint')
     parser.add_argument('--comm_thre', type=float, default=None,
                         help='Communication confidence threshold')
@@ -84,8 +84,12 @@ def main():
                    0.7: {'tp': [], 'fp': [], 'gt': 0}}
 
     total_comm_rates = []
+    # ================== 【新增】初始化统计列表 ==================
+    time_stats = [] 
+    req_bytes_stats = []
+    trans_bytes_stats = []
+    # ==========================================================
     # total_box = []
-    time_stats = []
     for i, batch_data in tqdm(enumerate(data_loader)):
         with torch.no_grad():
             batch_data = train_utils.to_device(batch_data, device)
@@ -116,6 +120,19 @@ def main():
                                                                   model,
                                                                   opencood_dataset)
                 total_comm_rates.append(comm_rates)
+
+                # # ================== 【修改】增加接收的参数 ==================
+                # pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_to_req_map, req_map_bytes, transmitted_bytes = \
+                #     inference_utils.inference_intermediate_fusion_withcomm(batch_data,
+                #                                                   model,
+                #                                                   opencood_dataset)
+                # # ==========================================================
+                # total_comm_rates.append(comm_rates)
+                # # ================== 【新增】存入每一帧的结果 ==================
+                # time_stats.append(time_to_req_map) 
+                # req_bytes_stats.append(req_map_bytes)
+                # trans_bytes_stats.append(transmitted_bytes)
+                # # ==========================================================
             else:
                 raise NotImplementedError('Only early, late and intermediate, no, intermediate_with_comm'
                                           'fusion modes are supported.')
@@ -182,22 +199,30 @@ def main():
     else:
         comm_rates = 0
     ap_30, ap_50, ap_70 = eval_utils.eval_final_results(result_stat, opt.model_dir)
-    # =================== 打印时间 ===================
-    avg_time = None
-    if len(time_stats) > 0:
-        avg_time = sum(time_stats) / len(time_stats)
-        print(f"Average Inference Time (Latency): {avg_time * 1000:.2f} ms")
-    # ===============================================
+    # =================== 【新增】计算平均值并打印输出 ===================
+    # 1. 计算时间（去掉第一帧预热时间以防不准）
+    avg_req_time = sum(time_stats[10:]) / len(time_stats[10:]) if len(time_stats) > 10 else (time_stats[0] if len(time_stats)>0 else 0)
+    # 2. 计算大小并换算成 KB (1 KB = 1024 Bytes)
+    avg_req_kb = (sum(req_bytes_stats) / len(req_bytes_stats)) / 1024.0 if len(req_bytes_stats) > 0 else 0
+    avg_trans_kb = (sum(trans_bytes_stats) / len(trans_bytes_stats)) / 1024.0 if len(trans_bytes_stats) > 0 else 0
+
+    print("=" * 50)
+    print(f"【性能开销统计 (Per Agent)】")
+    print(f"Average Time to Confidence Map: {avg_req_time * 1000:.2f} ms")
+    print(f"Confidence Map Size:            {avg_req_kb:.2f} KB")
+    print(f"Transmitted Feature Size:       {avg_trans_kb:.2f} KB  ({avg_trans_kb/1024.0:.2f} MB)")
+    print("=" * 50)
+    # ===============================================================
 
     with open(os.path.join(saved_path, 'result.txt'), 'a+') as f:
         msg = 'Epoch: {} | AP @0.3: {:.04f} | AP @0.5: {:.04f} | AP @0.7: {:.04f} | comm_rate: {:.06f}\n'.format(epoch_id, ap_30, ap_50, ap_70, comm_rates)
-        if opt.comm_thre is not None:
-            msg = 'Epoch: {} | AP @0.3: {:.04f} | AP @0.5: {:.04f} | AP @0.7: {:.04f} | comm_rate: {:.06f} | comm_thre: {:.04f}\n'.format(epoch_id, ap_30, ap_50, ap_70, comm_rates, opt.comm_thre)
         f.write(msg)
-        print(msg)
-        if avg_time is not None:
-            f.write(f"Average Inference Time (Latency): {avg_time * 1000:.2f} ms\n")
-
+        
+        # =================== 【新增】把结果也写入 txt 日志 ===================
+        f.write(f"Average Time to Confidence Map: {avg_req_time * 1000:.2f} ms\n")
+        f.write(f"Confidence Map Size per agent: {avg_req_kb:.2f} KB\n")
+        f.write(f"Transmitted Feature Size per agent: {avg_trans_kb:.2f} KB\n")
+        # =================================================================
 
 if __name__ == '__main__':
     main()

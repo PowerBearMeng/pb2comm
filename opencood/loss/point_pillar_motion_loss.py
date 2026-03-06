@@ -124,6 +124,7 @@ class PointPillarMotionLoss(nn.Module):
         """
         # 1. 检查是否有预测结果
         if 'traj_preds' not in output_dict:
+            print("\n[DEBUG-Loss] ❌ output_dict 里根本没有 'traj_preds'！")
             return torch.tensor(0.0).to(output_dict['psm'].device)
         
         preds = output_dict['traj_preds'] 
@@ -148,7 +149,11 @@ class PointPillarMotionLoss(nn.Module):
         if targets is None or mask is None:
             return torch.tensor(0.0).to(preds.device)
         # ----------------- [修改结束] -----------------
-
+        # ========== 【新增：检查 Mask 到底是不是全 0】 ==========
+        valid_count = mask.sum().item()
+        if valid_count == 0:
+            print("\n[DEBUG-Loss] ⚠️ Mask 全是 0！Loss 被乘成了 0。说明这一帧没有任何轨迹真值。")
+        # ========================================================
         # 3. 确保设备一致
         targets = targets.to(preds.device)
         mask = mask.to(preds.device)

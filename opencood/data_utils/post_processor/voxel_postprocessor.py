@@ -26,6 +26,7 @@ class VoxelPostprocessor(BasePostprocessor):
     def __init__(self, anchor_params, train):
         super(VoxelPostprocessor, self).__init__(anchor_params, train)
         self.anchor_num = self.params['anchor_args']['num']
+        self.z = self.params['anchor_args']['z']
 
     def generate_anchor_box(self):
         W = self.params['anchor_args']['W']
@@ -61,7 +62,7 @@ class VoxelPostprocessor(BasePostprocessor):
         cx = np.tile(cx[..., np.newaxis], self.anchor_num) # center
         cy = np.tile(cy[..., np.newaxis], self.anchor_num)
         #  这个是很关键的，z轴中心点统一
-        cz = np.ones_like(cx) * 0.78
+        cz = np.ones_like(cx) * self.z
 
         w = np.ones_like(cx) * w
         l = np.ones_like(cx) * l

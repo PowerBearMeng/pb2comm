@@ -120,7 +120,7 @@ def main():
             optimizer.zero_grad()
             batch_data = train_utils.to_device(batch_data, device)
             batch_data['ego']['epoch'] = epoch
-            
+            batch_data['ego']['max_epoch'] = hypes['train_params']['epoches'] - 5
             output_dict = model(batch_data['ego'])
             # ================= 【你缺失的部分】 =================
             # 必须手动把轨迹真值塞进 label_dict，否则 Loss 函数看不见！
@@ -133,8 +133,6 @@ def main():
             final_loss = criterion(output_dict, batch_data['ego']['label_dict'])
             # ===================================================================
 
-            # print("Final loss:", final_loss.item())
-            # continue 
             # 辅助 Loss (单车视角)
             if len(output_dict) > 2:
                 if 'label_dict_single_v' in batch_data['ego']:
@@ -203,7 +201,7 @@ def main():
     run_test = True
     if run_test:
         fusion_method = opt.fusion_method
-        cmd = f"python opencood/tools/inference.py --model_dir {saved_path} --fusion_method {fusion_method}"
+        cmd = f"python opencood/tools/inference.py --model_dir {saved_path} --fusion_method intermediate_with_comm"
         print(f"Running command: {cmd}")
         os.system(cmd)
 
