@@ -91,6 +91,13 @@ def main():
     # ==========================================================
     # total_box = []
     for i, batch_data in tqdm(enumerate(data_loader)):
+        # ================= 加上这段拦截代码 =================
+        if batch_data is None:
+            print(f"\n" + "!"*50)
+            print(f"🚨 抓到内鬼了！第 {i} 个 Batch 读取为空（被完全裁减掉了）。")
+            print("!"*50 + "\n")
+            continue  # 直接跳过这个坏数据，让程序继续往下跑！
+        # ===================================================
         with torch.no_grad():
             batch_data = train_utils.to_device(batch_data, device)
             if opt.fusion_method == 'late':

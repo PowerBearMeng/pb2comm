@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from opencood.models.comm_modules.where2comm_mfh_comm import Communication
 from opencood.models.sub_modules.torch_transformation_utils import warp_affine_simple
-
+import numpy as np
 class ScaledDotProductAttention(nn.Module):
 
     def __init__(self, dim):
@@ -176,7 +176,104 @@ def warp_feature(x, flow):
     return output
 # ==============================================================
 
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
+class PB2CommFusion(nn.Module):
+    def __init__(self, feature_dim):
+        super(PB2CommFusion, self).__init__()
+        self.q_conv = nn.Conv2d(feature_dim, feature_dim, kernel_size=1)
+        self.k_conv = nn.Conv2d(feature_dim, feature_dim, kernel_size=1)
+        self.v_conv = nn.Conv2d(feature_dim, feature_dim, kernel_size=1)
+        self.sqrt_dim = math.sqrt(feature_dim)
+
+    def forward(self, neighbor_feature, neighbor_risk, neighbor_conf):
+        """
+        V2I 场景：
+        neighbor_feature: [N, C, H, W] N=2时 [Ego, Infra]
+        neighbor_risk: [N, 1 (或 2), H, W]   Ego的风险图
+        neighbor_conf: [N, 1 (或 2), H, W]   各方的置信度
+        """
+        # ========================================================
+        # 🌟 新增：维度保护机制（把多通道的置信度/风险图压缩成 1 通道）
+        # ========================================================
+        if neighbor_conf.shape[1] > 1:
+            neighbor_conf = torch.max(neighbor_conf, dim=1, keepdim=True)[0]
+            
+        if neighbor_risk.shape[1] > 1:
+            neighbor_risk = torch.max(neighbor_risk, dim=1, keepdim=True)[0]
+        # ========================================================
+
+        N, C, H, W = neighbor_feature.shape
+        
+        # 提取 Ego 接收方
+        ego_feat = neighbor_feature[0:1]  # [1, C, H, W]
+        ego_risk = neighbor_risk[0:1]     # [1, 1, H, W] (现在绝对是1通道了)
+        
+        # 兜底：只有自己时直接返回
+        if N == 1:
+            return ego_feat[0]
+        
+        # 生成本车的 Query
+        Q = self.q_conv(ego_feat)  # [1, C, H, W]
+        
+        # 初始化输出
+        out_feat = ego_feat.clone()  # [1, C, H, W]
+        
+        # ═══════════════════════════════════════════════════════
+        # STEP 1: 供给端 (Supply) - 所有邻车信息的可信度加权
+        # ═══════════════════════════════════════════════════════
+        
+        # 累积所有协作车的加权贡献
+        aggregated_contrib = torch.zeros_like(ego_feat)  # [1, C, H, W]
+        
+        for i in range(1, N):
+            collab_feat = neighbor_feature[i:i+1]  # [1, C, H, W]
+            collab_conf = neighbor_conf[i:i+1]     # [1, 1, H, W]
+            
+            # 生成路端的 K, V
+            K = self.k_conv(collab_feat)  # [1, C, H, W]
+            V = self.v_conv(collab_feat)  # [1, C, H, W]
+            
+            # 计算特征匹配度 (空间上的相似性)
+            # [1, C, H, W] 在每个空间位置计算通道维度的相似度
+            energy = torch.sum(Q * K, dim=1, keepdim=True) / self.sqrt_dim
+            # energy: [1, 1, H, W]
+            
+            base_attn = torch.sigmoid(energy)  # [1, 1, H, W] in (0, 1)
+            
+            # 【供给端权重】= 特征匹配度 * 邻车置信度
+            # 只在这里做加权，不做归一化（因为只有一个邻车贡献）
+            supply_weight = base_attn * collab_conf  # [1, 1, H, W]
+            
+            # 累积供给
+            aggregated_contrib = aggregated_contrib + supply_weight * V
+            # [1, C, H, W] += [1, 1, H, W] * [1, C, H, W]
+        
+        # ══════════════════════════════════════════════════���════
+        # STEP 2: 需求端 (Demand) - 本车风险门控
+        # ═══════════════════════════════════════════════════════
+        
+        # 【关键】需求门控：
+        # - ego_risk 接近 0（安全区域）→ 不相信外来信息
+        # - ego_risk 接近 1（危险区域）→ 充分吸收外来信息
+        
+        # demand_gate = ego_risk  # [1, 1, H, W]
+        demand_gate = torch.clamp(ego_risk, min=0.05)
+        # 应用需求门控到聚合特征
+        gated_contrib = demand_gate * aggregated_contrib
+        # [1, 1, H, W] * [1, C, H, W] → [1, C, H, W]
+        
+        # ═══════════════════════════════════════════════════════
+        # STEP 3: 融合
+        # ═══════════════════════════════════════════════════════
+        
+        # 残差连接
+        out_feat = ego_feat + gated_contrib  # [1, C, H, W]
+        
+        return out_feat[0]  # [C, H, W]
 
 class Where2comm(nn.Module):
     def __init__(self, args):
@@ -193,6 +290,8 @@ class Where2comm(nn.Module):
         self.downsample_rate = args['downsample_rate']
         
         self.agg_mode = args['agg_operator']['mode']
+        print(self.agg_mode)
+        print("-------------------------")
         self.multi_scale = args['multi_scale']
         
         # 初始化多尺度融合模块
@@ -206,6 +305,8 @@ class Where2comm(nn.Module):
                     fuse_network = AttenFusion(num_filters[idx])
                 elif self.agg_mode == 'MAX':
                     fuse_network = MaxFusion()
+                elif self.agg_mode == 'PB':
+                    fuse_network = PB2CommFusion(num_filters[idx])
                 # ... (Transformer logic omitted for brevity) ...
                 self.fuse_modules.append(fuse_network)
         else:
@@ -241,22 +342,114 @@ class Where2comm(nn.Module):
             if with_resnet:
                 feats = backbone.resnet(x) # 获取多尺度特征列表 [feat1, feat2, feat3]
             
+            # for i in range(self.num_levels):
+            #     # 获取当前层的特征
+            #     x_curr = feats[i] if with_resnet else backbone.blocks[i](x)
+
+            #     # ================== 【插入点：多尺度时间对齐】 ==================
+            #     if flow_map is not None:
+            #         # 1. 获取当前特征图尺寸 (e.g., 50x176)
+            #         curr_h, curr_w = x_curr.shape[2], x_curr.shape[3]
+                    
+            #         # 2. 获取 Flow 原始尺寸 (e.g., 200x704)
+            #         flow_h, flow_w = flow_map.shape[2], flow_map.shape[3]
+                    
+            #         # 3. 将 Flow Map 缩放到当前尺寸
+            #         flow_curr = F.interpolate(flow_map, size=(curr_h, curr_w), mode='bilinear', align_corners=True)
+                    
+            #         # 4. 【关键】缩放数值：分辨率变小了，像素位移也要变小
+            #         scale_x = curr_w / flow_w
+            #         scale_y = curr_h / flow_h
+                    
+            #         flow_curr_scaled = flow_curr.clone()
+            #         flow_curr_scaled[:, 0] *= scale_x
+            #         flow_curr_scaled[:, 1] *= scale_y
+                    
+            #         # 5. 执行 Warp (将 t1 特征变换为 t2 特征)
+            #         x_curr = warp_feature(x_curr, flow_curr_scaled)
+            #     # ==========================================================
+
+            #     ############ 1. Communication #########
+            #     if i==0:
+            #         if self.communication:
+            #             batch_confidence_maps = self.regroup(rm, record_len)
+            #             comm_maps, communication_masks, communication_rates \
+            #                 = self.naive_communication(batch_confidence_maps, 
+            #                     record_len, 
+            #                     pairwise_t_matrix, 
+            #                     blind_spot_mask=blind_spot_mask,
+            #                     risk_map=risk_map,
+            #                     current_epoch=current_epoch)
+            #             x_curr = x_curr * communication_masks
+            #         else:
+            #             communication_rates = torch.tensor(0).to(x.device)
+            #             comm_maps = None 
+                
+            #     ############ 2. Split #######`l################
+            #     batch_node_features = self.regroup(x_curr, record_len)
+                
+            #     ############ 3. Fusion (空间融合) ###########
+            #     # 原来切分特征和置信度的代码：
+            #     # batch_node_features = self.regroup(x, record_len)
+            #     batch_conf_maps = self.regroup(rm, record_len)
+                
+            #     # 【新增 1】：按 record_len 切分你的 risk_map
+            #     # (注意：如果你的 risk_map 和 rm 形状一样，也是 [N, 1, H, W]，就直接 regroup)
+            #     if risk_map is not None:
+            #         batch_risk_maps = self.regroup(risk_map, record_len)
+            #     x_fuse = []
+            #     for b in range(B):
+            #         N = record_len[b]
+            #         t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
+            #         node_features = batch_node_features[b]
+            #         node_confs = batch_conf_maps[b]
+            #         node_risks = batch_risk_maps[b] # 取出当前 batch 的 risk
+                    
+            #         C_feat, H_feat, W_feat = node_features.shape[1:]
+            #         curr_h_b, curr_w_b = node_features.shape[2], node_features.shape[3]
+                    
+            #         # 空间 Warp
+            #         neighbor_feature = warp_affine_simple(node_features,
+            #                                         t_matrix[0, :, :, :],
+            #                                         (curr_h_b, curr_w_b))
+            #         # 融合
+            #         if self.agg_mode == 'PB':
+            #             # 【新增 2】：对齐置信度和 risk
+            #             neighbor_conf = warp_affine_simple(node_confs, t_matrix[0, :, :, :], (H_feat, W_feat))
+            #             neighbor_risk = warp_affine_simple(node_risks, t_matrix[0, :, :, :], (H_feat, W_feat))
+                        
+            #             # 【新增 3】：调用你的完美融合模块！
+            #             fused_out = self.fuse_modules[i](neighbor_feature, neighbor_risk, neighbor_conf)
+            #             x_fuse.append(fused_out)
+            #         else:
+            #             x_fuse.append(self.fuse_modules[i](neighbor_feature))
+            #         # x_fuse.append(self.fuse_modules[i](neighbor_feature))
+            #     x_fuse = torch.stack(x_fuse)
+
+            #     ############ 4. Deconv (上采样) #############
+            #     if len(backbone.deblocks) > 0:
+            #         ups.append(backbone.deblocks[i](x_fuse))
+            #     else:
+            #         ups.append(x_fuse)
+                
             for i in range(self.num_levels):
                 # 获取当前层的特征
                 x_curr = feats[i] if with_resnet else backbone.blocks[i](x)
 
-                # ================== 【插入点：多尺度时间对齐】 ==================
+                # ==========================================================
+                # 【新增防御】：创建局部变量（分身），防止循环污染！
+                # ==========================================================
+                rm_i = rm
+                risk_map_i = risk_map
+
+                # ================== 【时空对齐】 ==================
                 if flow_map is not None:
-                    # 1. 获取当前特征图尺寸 (e.g., 50x176)
+                    # 1. 获取尺寸
                     curr_h, curr_w = x_curr.shape[2], x_curr.shape[3]
-                    
-                    # 2. 获取 Flow 原始尺寸 (e.g., 200x704)
                     flow_h, flow_w = flow_map.shape[2], flow_map.shape[3]
                     
-                    # 3. 将 Flow Map 缩放到当前尺寸
+                    # 2. 缩放 Flow Map
                     flow_curr = F.interpolate(flow_map, size=(curr_h, curr_w), mode='bilinear', align_corners=True)
-                    
-                    # 4. 【关键】缩放数值：分辨率变小了，像素位移也要变小
                     scale_x = curr_w / flow_w
                     scale_y = curr_h / flow_h
                     
@@ -264,43 +457,72 @@ class Where2comm(nn.Module):
                     flow_curr_scaled[:, 0] *= scale_x
                     flow_curr_scaled[:, 1] *= scale_y
                     
-                    # 5. 执行 Warp (将 t1 特征变换为 t2 特征)
+                    # 3. 【推肉体】：执行特征 Warp
                     x_curr = warp_feature(x_curr, flow_curr_scaled)
+                    
+                    # 4. 【推灵魂】：执行辅助图 Warp
+                    if risk_map is not None:
+                        # 先缩放尺寸，再推移，并赋值给【分身】risk_map_i
+                        risk_curr = F.interpolate(risk_map, size=(curr_h, curr_w), mode='nearest')
+                        risk_map_i = warp_feature(risk_curr, flow_curr_scaled)
+                        
+                    if rm is not None:
+                        # 先缩放尺寸，再推移，并赋值给【分身】rm_i
+                        rm_curr = F.interpolate(rm, size=(curr_h, curr_w), mode='nearest')
+                        rm_i = warp_feature(rm_curr, flow_curr_scaled)
                 # ==========================================================
 
                 ############ 1. Communication #########
                 if i==0:
                     if self.communication:
-                        batch_confidence_maps = self.regroup(rm, record_len)
+                        # 【注意】：这里改用分身 rm_i 和 risk_map_i
+                        batch_confidence_maps = self.regroup(rm_i, record_len)
                         comm_maps, communication_masks, communication_rates \
                             = self.naive_communication(batch_confidence_maps, 
                                 record_len, 
                                 pairwise_t_matrix, 
                                 blind_spot_mask=blind_spot_mask,
-                                risk_map=risk_map,
+                                risk_map=risk_map_i,  # <--- 使用推移后的风险图
                                 current_epoch=current_epoch)
                         x_curr = x_curr * communication_masks
                     else:
                         communication_rates = torch.tensor(0).to(x.device)
                         comm_maps = None 
                 
-                ############ 2. Split #######`l################
+                ############ 2. Split ################
                 batch_node_features = self.regroup(x_curr, record_len)
                 
                 ############ 3. Fusion (空间融合) ###########
+                # 【注意】：这里全都要切分分身 rm_i 和 risk_map_i ！！！
+                batch_conf_maps = self.regroup(rm_i, record_len)
+                if risk_map_i is not None:
+                    batch_risk_maps = self.regroup(risk_map_i, record_len)
+                    
                 x_fuse = []
                 for b in range(B):
                     N = record_len[b]
                     t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
-                    node_features = batch_node_features[b]
-                    curr_h_b, curr_w_b = node_features.shape[2], node_features.shape[3]
                     
-                    # 空间 Warp
-                    neighbor_feature = warp_affine_simple(node_features,
-                                                    t_matrix[0, :, :, :],
-                                                    (curr_h_b, curr_w_b))
-                    # 融合
-                    x_fuse.append(self.fuse_modules[i](neighbor_feature))
+                    node_features = batch_node_features[b]
+                    node_confs = batch_conf_maps[b]
+                    node_risks = batch_risk_maps[b] if risk_map_i is not None else None
+                    
+                    # 严格使用 2 和 3 获取 H 和 W
+                    H_feat, W_feat = node_features.shape[2], node_features.shape[3]
+                    
+                    # 空间 Warp (对齐到 Ego 视角)
+                    neighbor_feature = warp_affine_simple(node_features, t_matrix[0, :, :, :], (H_feat, W_feat))
+                    
+                    if self.agg_mode == 'PB':
+                        neighbor_conf = warp_affine_simple(node_confs, t_matrix[0, :, :, :], (H_feat, W_feat))
+                        neighbor_risk = warp_affine_simple(node_risks, t_matrix[0, :, :, :], (H_feat, W_feat))
+                        
+                        # 调用完美融合模块
+                        fused_out = self.fuse_modules[i](neighbor_feature, neighbor_risk, neighbor_conf)
+                        x_fuse.append(fused_out)
+                    else:
+                        x_fuse.append(self.fuse_modules[i](neighbor_feature))
+                        
                 x_fuse = torch.stack(x_fuse)
 
                 ############ 4. Deconv (上采样) #############
@@ -308,7 +530,8 @@ class Where2comm(nn.Module):
                     ups.append(backbone.deblocks[i](x_fuse))
                 else:
                     ups.append(x_fuse)
-                
+
+                    
             if len(ups) > 1:
                 x_fuse = torch.cat(ups, dim=1)
             elif len(ups) == 1:

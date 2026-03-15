@@ -31,53 +31,138 @@ class Communication(nn.Module):
         self.gaussian_filter.weight.data = torch.Tensor(gaussian_kernel).to(self.gaussian_filter.weight.device).unsqueeze(0).unsqueeze(0)
         self.gaussian_filter.bias.data.zero_()
 
-    def forward(self, batch_confidence_maps, record_len, pairwise_t_matrix):
-        # batch_confidence_maps:[(L1, H, W), (L2, H, W), ...]
-        # pairwise_t_matrix: (B,L,L,2,3)
-        # thre: threshold of objectiveness
-        # a_ji = (1 - q_i)*q_ji
+    # def forward(self, batch_confidence_maps, record_len, pairwise_t_matrix):
+    #     # batch_confidence_maps:[(L1, H, W), (L2, H, W), ...]
+    #     # pairwise_t_matrix: (B,L,L,2,3)
+    #     # thre: threshold of objectiveness
+    #     # a_ji = (1 - q_i)*q_ji
+    #     B, L, _, _, _ = pairwise_t_matrix.shape
+    #     _, _, H, W = batch_confidence_maps[0].shape
+        
+    #     communication_masks = []
+    #     communication_rates = []
+    #     batch_communication_maps = []
+    #     for b in range(B):
+    #         # number of valid agent
+    #         N = record_len[b]
+    #         # (N,N,4,4)
+    #         # t_matrix[i, j]-> from i to j
+    #         # t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
+
+    #         ori_communication_maps = batch_confidence_maps[b].sigmoid().max(dim=1)[0].unsqueeze(1) # dim1=2 represents the confidence of two anchors
+            
+    #         if self.smooth:
+    #             communication_maps = self.gaussian_filter(ori_communication_maps)
+    #         else:
+    #             communication_maps = ori_communication_maps
+
+    #         ones_mask = torch.ones_like(communication_maps).to(communication_maps.device)
+    #         zeros_mask = torch.zeros_like(communication_maps).to(communication_maps.device)
+    #         communication_mask = torch.where(communication_maps>self.thre, ones_mask, zeros_mask)
+
+    #         #  communication_rate = communication_mask[0].sum()/(H*W)
+    #         if N > 1:
+    #         # 统计 Agent 1 (Infra) 发送的特征占比
+    #             communication_rate = communication_mask[1].sum() / (H * W)
+    #         else:
+    #         # 单车情况下没有邻居发送数据
+    #             communication_rate = torch.tensor(0.0).to(communication_mask.device)
+    #         # communication_mask = warp_affine_simple(communication_mask,
+    #         #                                 t_matrix[0, :, :, :],
+    #         #                                 (H, W))
+            
+    #         communication_mask_nodiag = communication_mask.clone()
+    #         ones_mask = torch.ones_like(communication_mask).to(communication_mask.device)
+    #         communication_mask_nodiag[::2] = ones_mask[::2]
+
+    #         communication_masks.append(communication_mask_nodiag)
+    #         communication_rates.append(communication_rate)
+    #         batch_communication_maps.append(ori_communication_maps*communication_mask_nodiag)
+    #     communication_rates = sum(communication_rates)/B
+    #     communication_masks = torch.concat(communication_masks, dim=0)
+    #     return batch_communication_maps, communication_masks, communication_rates
+
+    # 替换 opencood/models/comm_modules/where2comm.py 中的 forward 函数
+    def forward(self, batch_confidence_maps, record_len, pairwise_t_matrix, **kwargs):
+        # ==========================================================
+        # 接收外部推断脚本传进来的物理带宽限制 (Pixel Budget)
+        # ==========================================================
+        if hasattr(self, 'pixel_budget') and self.pixel_budget is not None:
+            pixel_budget = int(self.pixel_budget)
+        else:
+            pixel_budget = None
+            print("【警告】：当前没有设置 pixel_budget，默认不限制带宽，保持原有 Where2comm 行为。")
+        
         B, L, _, _, _ = pairwise_t_matrix.shape
         _, _, H, W = batch_confidence_maps[0].shape
         
         communication_masks = []
         communication_rates = []
         batch_communication_maps = []
+        
         for b in range(B):
-            # number of valid agent
-            N = record_len[b]
-            # (N,N,4,4)
-            # t_matrix[i, j]-> from i to j
-            # t_matrix = pairwise_t_matrix[b][:N, :N, :, :]
-
-            ori_communication_maps = batch_confidence_maps[b].sigmoid().max(dim=1)[0].unsqueeze(1) # dim1=2 represents the confidence of two anchors
+            N = int(record_len[b])
+            
+            # dim1=2 represents the confidence of two anchors
+            if batch_confidence_maps[b].shape[1] > 1:
+                ori_communication_maps = batch_confidence_maps[b].sigmoid().max(dim=1)[0].unsqueeze(1) 
+            else:
+                ori_communication_maps = batch_confidence_maps[b].sigmoid()
             
             if self.smooth:
                 communication_maps = self.gaussian_filter(ori_communication_maps)
             else:
                 communication_maps = ori_communication_maps
 
-            ones_mask = torch.ones_like(communication_maps).to(communication_maps.device)
-            zeros_mask = torch.zeros_like(communication_maps).to(communication_maps.device)
-            communication_mask = torch.where(communication_maps>self.thre, ones_mask, zeros_mask)
-
-            #  communication_rate = communication_mask[0].sum()/(H*W)
-            if N > 1:
-            # 统计 Agent 1 (Infra) 发送的特征占比
-                communication_rate = communication_mask[1].sum() / (H * W)
-            else:
-            # 单车情况下没有邻居发送数据
-                communication_rate = torch.tensor(0.0).to(communication_mask.device)
-            # communication_mask = warp_affine_simple(communication_mask,
-            #                                 t_matrix[0, :, :, :],
-            #                                 (H, W))
+            # ==========================================================
+            # 【核心修改】：支持动态物理带宽的 Baseline (Top-K Confidence)
+            # ==========================================================
+            final_mask_list = []
+            for k in range(N):
+                # k == 0 是自车 (Ego)，不用通信，全保留
+                if k == 0:
+                    final_mask_list.append(torch.ones_like(communication_maps[k:k+1]))
+                else:
+                    # 路侧/其他协同车
+                    conf_k = communication_maps[k:k+1]
+                    
+                    if pixel_budget is not None:
+                        K_pixels = int(pixel_budget)
+                        # 1. 如果带宽非常充足，退化为原版 Where2comm (只发置信度 > thre 的)
+                        if K_pixels >= conf_k.numel():
+                            print(f"【带宽充足】当前帧允许传输 {K_pixels} 个像素，完全满足需求，保持原有阈值筛选...")
+                            mask_k = (conf_k > self.thre).float()
+                        else:
+                            print(f"【带宽限制】一共有{conf_k.numel()}个像素，当前帧只能传输 {K_pixels} 个像素，正在根据置信度排序选择...")
+                            # 2. 如果带宽不够，Baseline 只能按“置信度 (Confidence)”从高到低挑
+                            flattened_conf = conf_k.view(-1)
+                            topk_vals, _ = torch.topk(flattened_conf, K_pixels)
+                            # 获取能刚好传 K 个像素的置信度物理阈值
+                            tau_k = topk_vals[-1].item() 
+                            
+                            # 综合阈值：既不能超过 K，也不能低于最基础的 self.thre
+                            final_tau = max(tau_k, self.thre)
+                            mask_k = (conf_k >= final_tau).float()
+                    else:
+                        # 训练阶段 或 没有开启带宽测试时，保持原样
+                        mask_k = (conf_k > self.thre).float()
+                        
+                    final_mask_list.append(mask_k)
             
-            communication_mask_nodiag = communication_mask.clone()
-            ones_mask = torch.ones_like(communication_mask).to(communication_mask.device)
-            communication_mask_nodiag[::2] = ones_mask[::2]
+            communication_mask_nodiag = torch.cat(final_mask_list, dim=0)
+            # ==========================================================
 
+            if N > 1:
+                # 统计 Agent 1 (Infra) 发送的特征占比
+                communication_rate = communication_mask_nodiag[1].sum() / (H * W)
+            else:
+                # 单车情况下没有邻居发送数据
+                communication_rate = torch.tensor(0.0).to(communication_mask_nodiag.device)
+            
             communication_masks.append(communication_mask_nodiag)
             communication_rates.append(communication_rate)
-            batch_communication_maps.append(ori_communication_maps*communication_mask_nodiag)
-        communication_rates = sum(communication_rates)/B
+            batch_communication_maps.append(ori_communication_maps * communication_mask_nodiag)
+            
+        communication_rates = sum(communication_rates) / B if B > 0 else 0
         communication_masks = torch.concat(communication_masks, dim=0)
         return batch_communication_maps, communication_masks, communication_rates

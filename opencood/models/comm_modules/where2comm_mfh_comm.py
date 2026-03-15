@@ -476,15 +476,36 @@ class Communication(nn.Module):
                     valid_mask_k = mask_conf_k > 0  
                     risk_values_k = current_risk_k[valid_mask_k]  # 仅包含路侧数据！
                     
-                    P = float(self.risk_threshold)
-                    P = max(0.0, min(1.0, P))
+                    # P = float(self.risk_threshold)
+                    # P = max(0.0, min(1.0, P))
                     
-                    K_pixels = int(P * risk_values_k.numel())
+                    # K_pixels = int(P * risk_values_k.numel())
                     
+                    # # 1. 初始化硬掩码和动态阈值
+                    # mask_risk_hard_k = torch.zeros_like(current_risk_k)
+                    # tau_k = 1e6 # 默认无限大阈值 (如果画面里没车，什么都不发)
+                    # ==========================================
+                    # 【新增】：物理带宽绝对配额逻辑
+                    # ==========================================
+                    if hasattr(self, 'pixel_budget') and self.pixel_budget is not None:
+                        # 如果外部推断脚本注入了真实的物理特征数量预算
+                        K_pixels = int(self.pixel_budget)
+                        # 如果带宽充足，预算比画面里的有效像素还多，那就全发；否则严格按照预算截断
+                        if K_pixels > risk_values_k.numel():
+                            print(f"够用，不启用物理像素预算，当前场景 {k} 的有效像素只有 {risk_values_k.numel()} 个，但预算是 {K_pixels} 个。")
+                        else:
+                            print(f"启用物理像素预算，当前场景 {k} 的有效像素有 {risk_values_k.numel()} 个，但预算只有 {K_pixels} 个，将严格截断。")
+                        K_pixels = min(K_pixels, risk_values_k.numel())
+                    else:
+                        # 训练阶段的 Fallback (依然保持你原来的百分比逻辑)
+                        P = float(self.risk_threshold)
+                        P = max(0.0, min(1.0, P))
+                        K_pixels = int(P * risk_values_k.numel())
+                        
                     # 1. 初始化硬掩码和动态阈值
                     mask_risk_hard_k = torch.zeros_like(current_risk_k)
-                    tau_k = 1e6 # 默认无限大阈值 (如果画面里没车，什么都不发)
-                    
+                    tau_k = 1e6 # 默认无限大阈值
+
                     if K_pixels > 0:
                         topk_vals, topk_idx = torch.topk(risk_values_k, K_pixels)
                         

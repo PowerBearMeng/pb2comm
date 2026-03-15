@@ -37,6 +37,9 @@ class PointPillarScatter(nn.Module):
         """
         pillar_features, coords = batch_dict['pillar_features'], batch_dict[
             'voxel_coords']
+        if coords.shape[0] == 0:
+            print("Empty voxel frame detected!")
+            print(batch_dict)
         batch_spatial_features = []
         batch_size = coords[:, 0].max().int().item() + 1
 

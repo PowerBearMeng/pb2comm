@@ -212,6 +212,8 @@ class Where2comm(nn.Module):
                                                 n_head=args['agg_operator']['n_head'], 
                                                 with_spe=args['agg_operator']['with_spe'], 
                                                 with_scm=args['agg_operator']['with_scm'])
+                elif self.agg_mode == 'PB':
+                    fuse_network = nn.Identity() # 随便塞个空壳糊弄一下父类
                 self.fuse_modules.append(fuse_network)
         else:
             if self.agg_mode == 'ATTEN':

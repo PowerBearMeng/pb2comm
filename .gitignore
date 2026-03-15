@@ -138,6 +138,9 @@ opv2v_data_dumping
 checkpoints
 DCOS.md
 spconv/
-mfh/
-mfh_tool/
 ffnet_weight
+mfh_tool/test
+mfh_tool/test.py
+mfh/
+draw_2d.py
+draw_3d.py

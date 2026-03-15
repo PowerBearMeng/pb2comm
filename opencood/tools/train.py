@@ -202,7 +202,7 @@ def main():
     run_test = True
     if run_test:
         fusion_method = opt.fusion_method
-        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method intermediate_with_comm"
+        cmd = f"python /home/yty/mfh/code/inter/Where2comm/opencood/tools/inference.py --model_dir {saved_path} --fusion_method {fusion_method}"
         print(f"Running command: {cmd}")
         os.system(cmd)
 
