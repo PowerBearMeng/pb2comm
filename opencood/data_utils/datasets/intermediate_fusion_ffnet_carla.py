@@ -81,7 +81,7 @@ class IntermediateFusionFFnetCarla(Dataset):
         self.root_dir = params['data_dir']
         self.split_info = load_json(split_dir)
         co_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_train.json'))
-        test_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_val_delay_1.json'))
+        test_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_val_delay_2.json'))
         # 3. 将 test 数据更新（合并）到 co_datainfo 中
         co_datainfo.extend(test_datainfo)
         print(f"Total cooperative data info length after merging: {len(co_datainfo)}")

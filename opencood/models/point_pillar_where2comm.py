@@ -122,7 +122,8 @@ class PointPillarWhere2comm(nn.Module):
         # [B, 256, 50, 176]
         psm_single = self.cls_head(spatial_features_2d)
         rm_single = self.reg_head(spatial_features_2d)
-
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        t_fusion_start = time.time()
         # print('spatial_features_2d: ', spatial_features_2d.shape)
         if self.multi_scale:
             fused_feature, communication_rates, result_dict = self.fusion_net(batch_dict['spatial_features'],
@@ -140,7 +141,8 @@ class PointPillarWhere2comm(nn.Module):
                                             record_len,
                                             pairwise_t_matrix)
             
-            
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        time_fusion = time.time() - t_fusion_start
         # print('fused_feature: ', fused_feature.shape)
         psm = self.cls_head(fused_feature)
         rm = self.reg_head(fused_feature)
@@ -169,6 +171,7 @@ class PointPillarWhere2comm(nn.Module):
                        'psm_single_i': psm_single_i,
                        'rm_single_v': rm_single_v,
                        'rm_single_i': rm_single_i,
-                       'comm_rate': communication_rates
+                       'comm_rate': communication_rates,
+                       'time_fusion': time_fusion
                        })
         return output_dict

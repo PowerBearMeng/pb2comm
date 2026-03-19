@@ -37,7 +37,7 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.4, 0.3, 6] #480 400
+    voxel_size: &voxel_size [0.4, 0.4, 6] #480 400
     # [0.44, 0.10, 10]  # xmax - xmin / 400 
     max_points_per_voxel: 32
     max_voxel_train: 32000
@@ -136,7 +136,7 @@ model:
         visualize: false
         print_debug: false
       agg_operator:
-        mode: 'PB' # MAX ATTEN PB
+        mode: 'ATTEN' # MAX ATTEN PB
         feature_dim: 256
       multi_scale: true
       layer_nums: *layer_nums

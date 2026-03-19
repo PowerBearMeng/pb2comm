@@ -9,6 +9,7 @@ from opencood.models.point_pillar_motion import sample_features_from_coords
 from opencood.utils.blind_spot_utils import get_blind_spot_mask
 from opencood.models.fuse_modules.where2comm_flow_blind import Where2comm
 import torch
+import time
 
 class PointPillarPb2comm(PointPillarWhere2comm):
     def __init__(self, args):
@@ -219,6 +220,9 @@ class PointPillarPb2comm(PointPillarWhere2comm):
         # 2. 计算 Flow (用于多尺度融合 + Loss)
         # -----------------------------------------------------------
         flow_map_final = None # 这个是要传给 Fusion 的
+        # ===========================================================
+        # ⏱️ 测速 1: Flow Net 时间
+        # ===========================================================
 
         if 'ffnet_t0' in data_dict.keys():
             ffnet_t0_dict = data_dict['ffnet_t0']
@@ -231,7 +235,8 @@ class PointPillarPb2comm(PointPillarWhere2comm):
                     return_both=True
                 )
                 feat_t0_384, feat_t1_384 = torch.chunk(combined_feat_384, 2, dim=0)
-
+            if torch.cuda.is_available(): torch.cuda.synchronize()
+            t_flow_start = time.time()
             # A. 预测 Flow (t0 -> t1)
             flow_pred = self.flow_generator(feat_t0_384, feat_t1_384)
             
@@ -239,7 +244,8 @@ class PointPillarPb2comm(PointPillarWhere2comm):
             dt_01 = ffnet_time['t_0_1'].view(-1, 1, 1, 1).to(flow_pred.device)
             dt_12 = ffnet_time['t_1_2'].view(-1, 1, 1, 1).to(flow_pred.device)
             flow_t1_to_t2 = flow_pred / (dt_01 + 1e-6) * dt_12
-            
+            if torch.cuda.is_available(): torch.cuda.synchronize()
+            time_flow = time.time() - t_flow_start
             # C. 准备传给 Fusion 的 Flow Map
             flow_map_final = flow_t1_to_t2
 
@@ -361,7 +367,11 @@ class PointPillarPb2comm(PointPillarWhere2comm):
         if target_lidar_key not in data_dict and 'origin_lidar' in data_dict:
              # 如果没有独立的路侧点云，回退到融合点云 (仅用于调试或可视化开启时)
             raise TypeError("Using 'origin_lidar' for blind spot mask calculation. This may be incorrect if 'origin_lidar_i' is available.")
-
+        # ===========================================================
+        # ⏱️ 测速 2: 盲区检测时间
+        # ===========================================================
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        t_blind_start = time.time()
         if target_lidar_key in data_dict:
             _, _, H, W = spatial_features_2d.shape
             real_batch_size = len(record_len)
@@ -394,9 +404,16 @@ class PointPillarPb2comm(PointPillarWhere2comm):
                 mask_list.append(mask_tensor)
 
             blind_spot_mask = torch.stack(mask_list, dim=0).unsqueeze(1)
-
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        time_blind = time.time() - t_blind_start
+        print("time_blind:"f'{time_blind}')
         # 4. 调用 Fusion (带 Flow!)
         # -----------------------------------------------------------
+        # ===========================================================
+        # ⏱️ 测速 3: PB Attn (Fusion) 时间
+        # ===========================================================
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        t_attn_start = time.time()
         if self.multi_scale:
             fused_feature, communication_rates, result_dict = self.fusion_net(
                 spatial_features_vfe, 
@@ -421,7 +438,8 @@ class PointPillarPb2comm(PointPillarWhere2comm):
                 pairwise_t_matrix
             )
         # -----------------------------------------------------------
-
+        if torch.cuda.is_available(): torch.cuda.synchronize()
+        time_pb_attn = time.time() - t_attn_start
         # 5. 最终检测头
         psm = self.cls_head(fused_feature)
         rm = self.reg_head(fused_feature)
@@ -496,7 +514,10 @@ class PointPillarPb2comm(PointPillarWhere2comm):
             'psm_single_i': torch.cat([batch[1:2] for batch in split_psm_single], dim=0),
             'rm_single_v': torch.cat([batch[0:1] for batch in split_rm_single], dim=0),
             'rm_single_i': torch.cat([batch[1:2] for batch in split_rm_single], dim=0),
-            'comm_rate': communication_rates
+            'comm_rate': communication_rates,
+            'time_flow': time_flow,
+            'time_blind': time_blind,
+            'time_pb_attn': time_pb_attn
         })
         
         return output_dict

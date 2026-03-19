@@ -17,7 +17,7 @@ only_vis_ego: False
 yaml_parser: "load_point_pillar_params"
 train_params:
   batch_size: &batch_size 4
-  epoches: 25
+  epoches: 31
   eval_freq: 2
   save_freq: 2
   max_cav: &max_cav 2
@@ -34,7 +34,7 @@ preprocess:
   # options: BasePreprocessor, VoxelPreprocessor, BevPreprocessor
   core_method: 'SpVoxelPreprocessor'
   args:
-    voxel_size: &voxel_size [0.4, 0.3, 6]
+    voxel_size: &voxel_size [0.4, 0.4, 6]
     max_points_per_voxel: 32
     max_voxel_train: 32000
     max_voxel_test: 70000
@@ -116,4 +116,4 @@ optimizer:
 lr_scheduler:
   core_method: multistep #step, multistep and Exponential support
   gamma: 0.1
-  step_size: [15, 25]
+  step_size: [10, 20]

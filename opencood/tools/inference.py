@@ -25,12 +25,12 @@ def test_parser():
     parser.add_argument('--fusion_method', type=str,
                         default='intermediate_with_comm',
                         help='no, no_w_uncertainty, late, early or intermediate')
-    parser.add_argument('--save_vis_n', type=int, default=10,
+    parser.add_argument('--save_vis_n', type=int, default=290,
                         help='save how many numbers of visualization result?')
     parser.add_argument('--save_npy', action='store_true',
                         help='whether to save prediction and gt result'
                              'in npy file')
-    parser.add_argument('--eval_epoch', type=str, default=21,
+    parser.add_argument('--eval_epoch', type=str, default=None,
                         help='Set the checkpoint')
     parser.add_argument('--comm_thre', type=float, default=None,
                         help='Communication confidence threshold')
@@ -88,6 +88,10 @@ def main():
     time_stats = [] 
     req_bytes_stats = []
     trans_bytes_stats = []
+    time_flow_stats = []
+    time_blind_stats = []
+    time_pb_attn_stats = []
+    time_fusion_stats = []
     # ==========================================================
     # total_box = []
     for i, batch_data in tqdm(enumerate(data_loader)):
@@ -122,11 +126,11 @@ def main():
                                                                   opencood_dataset)
             
             elif opt.fusion_method == 'intermediate_with_comm':
-                pred_box_tensor, pred_score, gt_box_tensor, comm_rates = \
-                    inference_utils.inference_intermediate_fusion_withcomm(batch_data,
-                                                                  model,
-                                                                  opencood_dataset)
-                total_comm_rates.append(comm_rates)
+                # pred_box_tensor, pred_score, gt_box_tensor, comm_rates = \
+                #     inference_utils.inference_intermediate_fusion_withcomm(batch_data,
+                #                                                   model,
+                #                                                   opencood_dataset)
+                # total_comm_rates.append(comm_rates)
 
                 # # ================== 【修改】增加接收的参数 ==================
                 # pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_to_req_map, req_map_bytes, transmitted_bytes = \
@@ -140,6 +144,28 @@ def main():
                 # req_bytes_stats.append(req_map_bytes)
                 # trans_bytes_stats.append(transmitted_bytes)
                 # # ==========================================================
+                ##               PB
+                # # ================== 【修改】增加接收的参数，抛弃 req 和 trans ==================
+                # pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_flow, time_blind, time_pb_attn = \
+                #     inference_utils.inference_intermediate_fusion_withcomm(batch_data,
+                #                                                            model,
+                #                                                            opencood_dataset)
+                # ==========================================================
+                # total_comm_rates.append(comm_rates)
+
+                # # ================== 【新增】存入每一帧的时间结果 ==================
+                # time_flow_stats.append(time_flow) 
+                # time_blind_stats.append(time_blind)
+                # time_pb_attn_stats.append(time_pb_attn)
+                # # ==========================================================
+                # 接收端
+
+                pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_fusion = \
+                    inference_utils.inference_intermediate_fusion_withcomm(batch_data,
+                                                                           model,
+                                                                           opencood_dataset)
+    
+                time_fusion_stats.append(time_fusion)
             else:
                 raise NotImplementedError('Only early, late and intermediate, no, intermediate_with_comm'
                                           'fusion modes are supported.')
@@ -206,18 +232,32 @@ def main():
     else:
         comm_rates = 0
     ap_30, ap_50, ap_70 = eval_utils.eval_final_results(result_stat, opt.model_dir)
-    # =================== 【新增】计算平均值并打印输出 ===================
-    # 1. 计算时间（去掉第一帧预热时间以防不准）
-    avg_req_time = sum(time_stats[10:]) / len(time_stats[10:]) if len(time_stats) > 10 else (time_stats[0] if len(time_stats)>0 else 0)
-    # 2. 计算大小并换算成 KB (1 KB = 1024 Bytes)
-    avg_req_kb = (sum(req_bytes_stats) / len(req_bytes_stats)) / 1024.0 if len(req_bytes_stats) > 0 else 0
-    avg_trans_kb = (sum(trans_bytes_stats) / len(trans_bytes_stats)) / 1024.0 if len(trans_bytes_stats) > 0 else 0
+    
+    # =================== 【新增】计算各个模块的时间开销并输出 ===================
+    # 1. 计算时间（为了避免 GPU 启动时的巨大开销影响均值，去掉前 10 帧预热数据）
+    warmup = 10
+    if len(time_flow_stats) > warmup:
+        avg_time_flow = sum(time_flow_stats[warmup:]) / len(time_flow_stats[warmup:])
+        avg_time_blind = sum(time_blind_stats[warmup:]) / len(time_blind_stats[warmup:])
+        avg_time_pb_attn = sum(time_pb_attn_stats[warmup:]) / len(time_pb_attn_stats[warmup:])
+    else:
+        # 如果总帧数不足 10 帧，则直接计算所有帧的平均值
+        avg_time_flow = sum(time_flow_stats) / len(time_flow_stats) if len(time_flow_stats) > 0 else 0
+        avg_time_blind = sum(time_blind_stats) / len(time_blind_stats) if len(time_blind_stats) > 0 else 0
+        avg_time_pb_attn = sum(time_pb_attn_stats) / len(time_pb_attn_stats) if len(time_pb_attn_stats) > 0 else 0
+    # 算均值 (剔除前10帧)
+    warmup = 10
+    avg_fusion_time = sum(time_fusion_stats[warmup:]) / len(time_fusion_stats[warmup:])
+
+    print(f"⏱️ Where2comm Fusion Time: {avg_fusion_time * 1000:.2f} ms")
 
     print("=" * 50)
-    print(f"【性能开销统计 (Per Agent)】")
-    print(f"Average Time to Confidence Map: {avg_req_time * 1000:.2f} ms")
-    print(f"Confidence Map Size:            {avg_req_kb:.2f} KB")
-    print(f"Transmitted Feature Size:       {avg_trans_kb:.2f} KB  ({avg_trans_kb/1024.0:.2f} MB)")
+    print(f"【各个模块时间开销统计 (Average ms per frame)】")
+    print(f"⏱️ Flow Net Time:          {avg_time_flow * 1000:.2f} ms")
+    print(f"⏱️ Blind Spot Calc Time:   {avg_time_blind * 1000:.2f} ms")
+    print(f"⏱️ PB Attention Time:      {avg_time_pb_attn * 1000:.2f} ms")
+    print("-" * 50)
+    print(f"Total Measured Overhead:   {(avg_time_flow + avg_time_blind + avg_time_pb_attn) * 1000:.2f} ms")
     print("=" * 50)
     # ===============================================================
 
@@ -225,11 +265,14 @@ def main():
         msg = 'Epoch: {} | AP @0.3: {:.04f} | AP @0.5: {:.04f} | AP @0.7: {:.04f} | comm_rate: {:.06f}\n'.format(epoch_id, ap_30, ap_50, ap_70, comm_rates)
         f.write(msg)
         
-        # =================== 【新增】把结果也写入 txt 日志 ===================
-        f.write(f"Average Time to Confidence Map: {avg_req_time * 1000:.2f} ms\n")
-        f.write(f"Confidence Map Size per agent: {avg_req_kb:.2f} KB\n")
-        f.write(f"Transmitted Feature Size per agent: {avg_trans_kb:.2f} KB\n")
+        # =================== 【新增】把时间结果写入 txt 日志 ===================
+        f.write("--- Latency Evaluation ---\n")
+        f.write(f"Flow Net Time:        {avg_time_flow * 1000:.2f} ms\n")
+        f.write(f"Blind Spot Calc Time: {avg_time_blind * 1000:.2f} ms\n")
+        f.write(f"PB Attention Time:    {avg_time_pb_attn * 1000:.2f} ms\n")
+        f.write(f"Total Overhead:       {(avg_time_flow + avg_time_blind + avg_time_pb_attn) * 1000:.2f} ms\n\n")
         # =================================================================
 
 if __name__ == '__main__':
     main()
+
