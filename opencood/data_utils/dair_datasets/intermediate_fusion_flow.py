@@ -33,7 +33,7 @@ def load_json(path):
         data = json.load(f)
     return data
 
-class IntermediateFlowMotion(Dataset):
+class IntermediateFusionFlow(Dataset):
     """
     This class is for intermediate fusion where each vehicle transmit the
     deep features to ego.
@@ -45,6 +45,9 @@ class IntermediateFlowMotion(Dataset):
         self.data_augmentor = DataAugmentor(params['data_augment'],
                                             train)
         self.max_cav = 2
+        # if project first, cav's lidar will first be projected to
+        # the ego's coordinate frame. otherwise, the feature will be
+        # projected instead.
         assert 'proj_first' in params['fusion']['args']
         if params['fusion']['args']['proj_first']:
             self.proj_first = True
@@ -75,33 +78,13 @@ class IntermediateFlowMotion(Dataset):
 
         if self.train:
             split_dir = params['root_dir']
-            traj_json_path = params['traj_train']
         else:
             split_dir = params['validate_dir']
-            traj_json_path = params['traj_test']
 
         self.root_dir = params['data_dir']
         self.split_info = load_json(split_dir)
-        co_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_train.json'))
-        test_datainfo = load_json(os.path.join(self.root_dir, 'flow_data_jsons/flow_val_delay_1.json'))
-        # 3. 将 test 数据更新（合并）到 co_datainfo 中
-        co_datainfo.extend(test_datainfo)
-        print(f"Total cooperative data info length after merging: {len(co_datainfo)}")
+        co_datainfo = load_json(os.path.join(self.root_dir, 'cooperative/data_info_clean_seq.json'))
         self.co_data = OrderedDict()
-        # # =========================================================
-        # # 【修改】无条件加载轨迹数据库 (Train & Test 通用)
-        # # =========================================================
-        # self.pred_len = 5
-        # self.traj_database = {}       
-        # if os.path.exists(traj_json_path):
-        #     print(f"[Dataset] (Debug Mode) Loading trajectory labels from {traj_json_path} ...")
-        #     self.traj_database = load_json(traj_json_path)
-        #     print(f"[Dataset] Trajectory labels loaded. Count: {len(self.traj_database)}")
-        # else:
-        #     print(f"[Dataset] Warning: {traj_json_path} not found. Trajectory prediction will be skipped.")
-        #     raise FileNotFoundError(f"{traj_json_path} not found.")
-        # ################################################################################
-
         for frame_info in co_datainfo:
             veh_frame_id = frame_info['vehicle_image_path'].split("/")[-1].replace(".jpg", "")
             self.co_data[veh_frame_id] = frame_info
@@ -123,7 +106,7 @@ class IntermediateFlowMotion(Dataset):
         """
         veh_frame_id = self.split_info[idx]
         frame_info = self.co_data[veh_frame_id]
-        # system_error_offset = frame_info["system_error_offset"]
+        system_error_offset = frame_info["system_error_offset"]
         data = OrderedDict()
         data[0] = OrderedDict() # veh-side
         data[0]['ego'] = True
@@ -131,55 +114,55 @@ class IntermediateFlowMotion(Dataset):
         data[1]['ego'] = False
  
         data[0]['params'] = OrderedDict()
-        data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))['objects']
+        # 对的 frame_info['cooperative_label_path'] = cooperative/label_world/xxxx.json
+        data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path']))
+        # data[0]['params']['vehicles'] = load_json(os.path.join(self.root_dir, frame_info['cooperative_label_path'].replace('label_world','label_world_backup')))
 
-        # 下面 pose 成 xyz rpy 
-        vehicle_pose = load_json(os.path.join(self.root_dir,'vehicle-side/label/lidar/'+str(veh_frame_id)+'.json'))
-        vehicle_sensor_pose = vehicle_pose['sensor_pose']
-        data[0]['params']['lidar_pose'] = [vehicle_sensor_pose['x'], vehicle_sensor_pose['y'], vehicle_sensor_pose['z'],
-                                           vehicle_sensor_pose['roll'], vehicle_sensor_pose['yaw'], vehicle_sensor_pose['pitch']]
+        # 下面两个也是对的路径
+        lidar_to_novatel_json_file = load_json(os.path.join(self.root_dir,'vehicle-side/calib/lidar_to_novatel/'+str(veh_frame_id)+'.json'))
+        novatel_to_world_json_file = load_json(os.path.join(self.root_dir,'vehicle-side/calib/novatel_to_world/'+str(veh_frame_id)+'.json'))
+        transformation_matrix = veh_side_rot_and_trans_to_trasnformation_matrix(lidar_to_novatel_json_file,novatel_to_world_json_file)
+        data[0]['params']['lidar_pose'] = tfm_to_pose(transformation_matrix)
+        
         ######################## Single View GT ########################
         vehicle_side_path = os.path.join(self.root_dir, 'vehicle-side/label/lidar/{}.json'.format(veh_frame_id))
-        data[0]['params']['vehicles_single'] = load_json(vehicle_side_path)['objects']
+        data[0]['params']['vehicles_single'] = load_json(vehicle_side_path)
         ######################## Single View GT ########################
 
         # 应该是这个有问题
-        vehicle_lidar_path = os.path.join(self.root_dir, 'vehicle-side/velodyne/{}.bin'.format(veh_frame_id))
-        data[0]['lidar_np'], _ = pcd_utils.read_bin(vehicle_lidar_path)
+        vehicle_lidar_path = f"{self.root_dir}-{os.path.dirname(frame_info['vehicle_pointcloud_path']).replace('/', '-')}/{os.path.basename(frame_info['vehicle_pointcloud_path'])}"
+        data[0]['lidar_np'], _ = pcd_utils.read_pcd(vehicle_lidar_path)
         if self.clip_pc:
             data[0]['lidar_np'] = data[0]['lidar_np'][data[0]['lidar_np'][:,0]>0]
 
-        # # motion ############################## 
-        # if veh_frame_id in self.traj_database:
-        #     data[0]['traj_gt_record'] = self.traj_database[veh_frame_id]
-        # else:
-        #     data[0]['traj_gt_record'] = None
-        # ##########################################
-        #  路侧！
         data[1]['params'] = OrderedDict()
-        # inf_frame_id = frame_info['infrastructure_image_path'].split("/")[-1].replace(".jpg", "")
+        inf_frame_id = frame_info['infrastructure_image_path'].split("/")[-1].replace(".jpg", "")
         data[1]['params']['vehicles'] = [] # we only load cooperative once in veh-side
-        infra_pose = load_json(os.path.join(self.root_dir,'infrastructure-side/label/virtuallidar/'+str(veh_frame_id)+'.json'))
-        infra_sensor_pose = infra_pose['sensor_pose']
-        data[1]['params']['lidar_pose'] = [infra_sensor_pose['x'], infra_sensor_pose['y'], infra_sensor_pose['z'],
-                                           infra_sensor_pose['roll'], infra_sensor_pose['yaw'], infra_sensor_pose['pitch']]
-        
+        virtuallidar_to_world_json_file = load_json(os.path.join(self.root_dir,'infrastructure-side/calib/virtuallidar_to_world/'+str(inf_frame_id)+'.json'))
+        transformation_matrix1 = inf_side_rot_and_trans_to_trasnformation_matrix(virtuallidar_to_world_json_file,system_error_offset)
+        data[1]['params']['lidar_pose'] = tfm_to_pose(transformation_matrix1)
+
         ######################## Single View GT ########################
-        infra_side_path = os.path.join(self.root_dir, 'infrastructure-side/label/virtuallidar/{}.json'.format(veh_frame_id))
-        data[1]['params']['vehicles_single'] = load_json(infra_side_path)['objects']
+        infra_side_path = os.path.join(self.root_dir, 'infrastructure-side/label/virtuallidar/{}.json'.format(inf_frame_id))
+        data[1]['params']['vehicles_single'] = load_json(infra_side_path)
         ######################## Single View GT ########################
-        infra_lidar_path = os.path.join(self.root_dir, 'infrastructure-side/velodyne/{}.bin'.format(veh_frame_id))
-        data[1]['lidar_np'], _ = pcd_utils.read_bin(infra_lidar_path)
-        
-        # 加入ffnet数据
+        infra_lidar_path = f"{self.root_dir}-{os.path.dirname(frame_info['infrastructure_pointcloud_path']).replace('/', '-')}/{os.path.basename(frame_info['infrastructure_pointcloud_path'])}"
+        data[1]['lidar_np'], _ = pcd_utils.read_pcd(infra_lidar_path)
+                # 加入ffnet数据
         data[1]['ffnet'] = OrderedDict()
         if 'infrastructure_pointcloud_bin_path_t_0' in frame_info:
             t_0_path = frame_info['infrastructure_pointcloud_bin_path_t_0']
             t_1_path = frame_info['infrastructure_pointcloud_bin_path_t_1']
             t_2_path = frame_info['infrastructure_pointcloud_bin_path_t_2']
-            data[1]['ffnet']['t_0'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_0_path))
-            data[1]['ffnet']['t_1'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_1_path))
-            data[1]['ffnet']['t_2'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_2_path))
+            # print(f"{self.root_dir}-{os.path.dirname(t_0_path).replace('/', '-')}/{os.path.basename(t_0_path)}")
+            
+            data[1]['ffnet']['t_0'], _  = pcd_utils.read_pcd(f"{self.root_dir}-{os.path.dirname(t_0_path).replace('/', '-')}/{os.path.basename(t_0_path)}".replace('.bin', '.pcd'))
+            data[1]['ffnet']['t_1'], _  = pcd_utils.read_pcd(f"{self.root_dir}-{os.path.dirname(t_1_path).replace('/', '-')}/{os.path.basename(t_1_path)}".replace('.bin', '.pcd'))
+            data[1]['ffnet']['t_2'], _  = pcd_utils.read_pcd(f"{self.root_dir}-{os.path.dirname(t_2_path).replace('/', '-')}/{os.path.basename(t_2_path)}".replace('.bin', '.pcd'))
+
+            # data[1]['ffnet']['t_0'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_0_path))
+            # data[1]['ffnet']['t_1'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_1_path))
+            # data[1]['ffnet']['t_2'], _  = pcd_utils.read_bin(os.path.join(self.root_dir, t_2_path))
             
             data[1]['ffnet']['t_0_1'] = frame_info['infrastructure_t_0_1']
             data[1]['ffnet']['t_1_2'] = frame_info['infrastructure_t_1_2']
@@ -218,7 +201,7 @@ class IntermediateFlowMotion(Dataset):
             Length is number of bbx in current sample.
         """
 
-        return self.post_processor.generate_object_center_carla(cav_contents,
+        return self.post_processor.generate_object_center_dairv2x(cav_contents,
                                                         reference_lidar_pose, return_visible_mask)
         
     def generate_object_center_single(self,
@@ -255,6 +238,7 @@ class IntermediateFlowMotion(Dataset):
         transformation_matrix_clean = \
             x1_to_x2(selected_cav_base['params']['lidar_pose_clean'],
                      ego_pose_clean)
+
         # retrieve objects under ego coordinates
         # this is used to generate accurate GT bounding box.
         object_bbx_center, object_bbx_mask, object_ids = self.generate_object_center([selected_cav_base],
@@ -262,6 +246,7 @@ class IntermediateFlowMotion(Dataset):
 
         object_bbx_center_single, object_bbx_mask_single, object_ids_single = self.generate_object_center_single([selected_cav_base],
                                                     ego_pose_clean)
+
         # filter lidar
         lidar_np = selected_cav_base['lidar_np']
         lidar_np = shuffle_points(lidar_np)
@@ -307,28 +292,10 @@ class IntermediateFlowMotion(Dataset):
             selected_cav_processed.update(
                 {"projected_lidar_clean": lidar_np_clean}
             )
+
         return selected_cav_processed
-    def process_single_lidar(self, lidar_np, transformation_matrix):
-        """
-        统一的点云处理流水线：清洗 -> 投影 -> 裁剪 -> 体素化
-        """
-        if lidar_np is None:
-            return None, None
 
-        # 1. 基础清洗 (Shuffle & Mask Ego)
-        lidar_np = shuffle_points(lidar_np)
-        lidar_np = mask_ego_points(lidar_np)
-
-        projected_lidar = box_utils.project_points_by_matrix_torch(
-            lidar_np[:, :3], transformation_matrix
-        )
-
-        lidar_np = mask_points_by_range(
-            lidar_np, self.params['preprocess']['cav_lidar_range']
-        )
-        processed_features = self.pre_processor.preprocess(lidar_np)
-
-        return projected_lidar, processed_features
+    # 没用上
     def augment(self, lidar_np, object_bbx_center, object_bbx_mask):
         """
         Given the raw point cloud, augment by flipping and rotation.
@@ -370,10 +337,37 @@ class IntermediateFlowMotion(Dataset):
         else:
             updated_object_id_stack = object_id_stack
         return object_bbx_center, mask, updated_object_id_stack
+    def process_single_lidar(self, lidar_np, transformation_matrix):
+        """
+        统一的点云处理流水线：清洗 -> 投影 -> 裁剪 -> 体素化
+        """
+        if lidar_np is None:
+            return None, None
 
+        # 1. 基础清洗 (Shuffle & Mask Ego)
+        lidar_np = shuffle_points(lidar_np)
+        lidar_np = mask_ego_points(lidar_np)
+
+        projected_lidar = box_utils.project_points_by_matrix_torch(
+            lidar_np[:, :3], transformation_matrix
+        )
+
+        lidar_np = mask_points_by_range(
+            lidar_np, self.params['preprocess']['cav_lidar_range']
+        )
+        processed_features = self.pre_processor.preprocess(lidar_np)
+
+        return projected_lidar, processed_features
+    
     def __getitem__(self, idx):
         base_data_dict = self.retrieve_base_data(idx)
+        # data [0]  -- veh-side
+        # data [1]  -- inf-side  
+        # "lidar_np": np.ndarray of shape (n, 4), first three channels are x,y,z
+        # 还有 label信息 还有 转移矩阵信息
         base_data_dict = add_noise_data_dict(base_data_dict,self.params['noise_setting'])
+        # 加噪声
+
         processed_data_dict = OrderedDict()
         processed_data_dict['ego'] = {}
 
@@ -436,7 +430,8 @@ class IntermediateFlowMotion(Dataset):
                 ego_keypoints, 
                 ego_allpoints,
                 idx)
-            # 路侧才做这个处理
+            
+                        # 路侧才做这个处理
             if cav_id == 1 and 'ffnet' in selected_cav_base:
                 trans_matrix = selected_cav_processed['transformation_matrix'] 
 
@@ -454,7 +449,6 @@ class IntermediateFlowMotion(Dataset):
                     't_0_1': selected_cav_base['ffnet'].get('t_0_1', 1.0),
                     't_1_2': selected_cav_base['ffnet'].get('t_1_2', 1.0)
                 })
-
             object_stack.append(selected_cav_processed['object_bbx_center'])
             object_id_stack += selected_cav_processed['object_ids']
 
@@ -478,6 +472,9 @@ class IntermediateFlowMotion(Dataset):
             projected_lidar_stack.append(
                     selected_cav_processed['projected_lidar'])
 
+        ########## Added by Yifan Lu 2022.4.5 ################
+        # filter those out of communicate range
+        # then we can calculate get_pairwise_transformation
         for cav_id in too_far:
             base_data_dict.pop(cav_id)
         
@@ -498,34 +495,7 @@ class IntermediateFlowMotion(Dataset):
             stack_feature_processed = self.pre_processor.preprocess(stack_lidar_np)
 
         object_bbx_center, mask, object_id_stack = self.get_unique_label(object_stack, object_id_stack)
-        #  # ==================== 【新增代码 START】 ====================
-        # # 2. 从 base_data_dict 里拿出刚才 retrieve_base_data 存好的“大字典”
-        # # 注意：ego_id 通常是 0，或者根据你的逻辑获取
-        # traj_record = base_data_dict[ego_id].get('traj_gt_record')
-        # # 3. 初始化结果容器 (N个物体, 预测长度, 2xy)
-        # # 注意：这里的 len(object_id_stack) 是当前样本最终的物体数量
-        # max_num = self.params['postprocess']['max_num']
-        # gt_traj = np.zeros((max_num, self.pred_len, 2), dtype=np.float32)
-        # gt_traj_mask = np.zeros((max_num, self.pred_len), dtype=np.float32)
         
-        # if traj_record is not None:
-        #     # 拿到“大字典”里的数据
-        #     saved_ids = traj_record['gt_ids']          # 这一帧所有物体的ID
-        #     saved_trajs = traj_record['gt_traj']       # 对应的轨迹
-        #     saved_masks = traj_record['gt_traj_mask']  # 对应的mask
-        #     id_to_idx = {str(uid): i for i, uid in enumerate(saved_ids)}
-            
-        #     # 3. 遍历实际存在的物体进行填空
-        #     # 注意：object_id_stack 的长度肯定是 <= max_num 的
-        #     for k, query_id in enumerate(object_id_stack):
-        #         # 安全检查：防止 k 超过 max_num (极少情况)
-        #         if k >= max_num: break
-                
-        #         if str(query_id) in id_to_idx:
-        #             src_idx = id_to_idx[str(query_id)]
-        #             gt_traj[k] = saved_trajs[src_idx]
-        #             gt_traj_mask[k] = saved_masks[src_idx]
-        # # ==================== 【新增代码 END】 ====================
         ######################## Single View GT ########################
         object_bbx_center_single_v, mask_single_v, object_id_stack_single_v = self.get_unique_label(object_stack_single_v, object_id_stack_single_v)
         object_bbx_center_single_i, mask_single_i, object_id_stack_single_i = self.get_unique_label(object_stack_single_i, object_id_stack_single_i)
@@ -544,6 +514,7 @@ class IntermediateFlowMotion(Dataset):
                 gt_box_center=object_bbx_center,
                 anchors=anchor_box,
                 mask=mask)
+        
         label_dict_single_v = \
             self.post_processor.generate_label(
                 gt_box_center=object_bbx_center_single_v,
@@ -561,10 +532,6 @@ class IntermediateFlowMotion(Dataset):
              'object_bbx_mask': mask,
              'object_ids': object_id_stack,
              'label_dict': label_dict,
-            # 新增
-            #  'object_traj': gt_traj, 
-            #  'object_traj_mask': gt_traj_mask,
-             # 
              'object_bbx_center_single_v': object_bbx_center_single_v,
              'object_bbx_mask_single_v': mask_single_v,
              'object_ids_single_v': object_id_stack_single_v,
@@ -582,6 +549,7 @@ class IntermediateFlowMotion(Dataset):
              'ffnet_features_list': infra_ffnet_features,  # 注意这里是 List
              'ffnet_time_intervals_list': infra_ffnet_time_intervals
              })
+
         if self.kd_flag:
             processed_data_dict['ego'].update({'teacher_processed_lidar':
                 stack_feature_processed})
@@ -638,9 +606,7 @@ class IntermediateFlowMotion(Dataset):
         
         # pairwise transformation matrix
         pairwise_t_matrix_list = []
-        # 【新增】初始化轨迹列表
-        # object_traj_list = []
-        # object_traj_mask_list = []
+
         origin_lidar_i = [] # <--- 新增
         ## ffnet 
         batch_ffnet_t0_list = []
@@ -660,9 +626,7 @@ class IntermediateFlowMotion(Dataset):
             object_bbx_mask.append(ego_dict['object_bbx_mask'])
             object_ids.append(ego_dict['object_ids'])
             label_dict_list.append(ego_dict['label_dict'])
-            # 【新增 2】从每个样本里取出轨迹，加入列表
-            # object_traj_list.append(ego_dict['object_traj'])
-            # object_traj_mask_list.append(ego_dict['object_traj_mask'])
+
             ######################## Single View GT ########################
             object_bbx_center_single_v.append(ego_dict['object_bbx_center_single_v'])
             object_bbx_mask_single_v.append(ego_dict['object_bbx_mask_single_v'])
@@ -708,11 +672,6 @@ class IntermediateFlowMotion(Dataset):
         # convert to numpy, (B, max_num, 7)
         object_bbx_center = torch.from_numpy(np.array(object_bbx_center))
         object_bbx_mask = torch.from_numpy(np.array(object_bbx_mask))
-        # # 【新增 3】把列表转为 Tensor
-        # # shape: (B, max_num, pred_len, 2)
-        # object_traj = torch.from_numpy(np.array(object_traj_list))
-        # # shape: (B, max_num, pred_len)
-        # object_traj_mask = torch.from_numpy(np.array(object_traj_mask_list))
 
         ######################## Single View GT ########################
         object_bbx_center_single_v = torch.from_numpy(np.array(object_bbx_center_single_v))
@@ -743,6 +702,7 @@ class IntermediateFlowMotion(Dataset):
 
         # (B, max_cav)
         pairwise_t_matrix = torch.from_numpy(np.array(pairwise_t_matrix_list))
+        # 
         if len(batch_ffnet_t0_list) > 0:
             merged_t0 = self.merge_features_to_dict(batch_ffnet_t0_list)
             output_dict['ego']['ffnet_t0'] = self.pre_processor.collate_batch(merged_t0)
@@ -762,7 +722,7 @@ class IntermediateFlowMotion(Dataset):
                 ffnet_time_torch[key] = torch.tensor(values, dtype=torch.float32)
             
             output_dict['ego']['ffnet_time'] = ffnet_time_torch
-
+            
         # add pairwise_t_matrix to label dict
         label_torch_dict['pairwise_t_matrix'] = pairwise_t_matrix
         label_torch_dict['record_len'] = record_len
@@ -781,10 +741,6 @@ class IntermediateFlowMotion(Dataset):
                                    'object_bbx_mask': object_bbx_mask,
                                    'object_ids': object_ids[0],
                                    'label_dict': label_torch_dict,
-                                    # 新增
-                                #    'object_traj': object_traj,
-                                #    'object_traj_mask': object_traj_mask,
-                                   # 
                                    'object_bbx_center_single_v': object_bbx_center_single_v,
                                    'object_bbx_mask_single_v': object_bbx_mask_single_v,
                                    'object_ids_single_v': object_ids_single_v[0],
@@ -826,6 +782,7 @@ class IntermediateFlowMotion(Dataset):
         if self.params['preprocess']['core_method'] == 'SpVoxelPreprocessor' and \
             (output_dict['ego']['processed_lidar']['voxel_coords'][:, 0].max().int().item() + 1) != record_len.sum().int().item():
             return None
+
         return output_dict
 
     def collate_batch_test(self, batch):

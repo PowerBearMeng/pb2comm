@@ -47,3 +47,6 @@ python opencood/tools/mfh/band_inference_3d.py  --model_dir opencood/logs/b_pb2c
 Epoch: 21 | AP @0.3: 0.8139 | AP @0.5: 0.8010 | AP @0.7: 0.7197 | comm_rate: 0.001683
 Epoch: 25 | AP @0.3: 0.8273 | AP @0.5: 0.8111 | AP @0.7: 0.7190 | comm_rate: 0.001133
 
+python opencood/tools/train_dair.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_pb2comm.yaml
+
+Town12_t_1_seq24_000016

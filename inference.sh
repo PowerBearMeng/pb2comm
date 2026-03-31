@@ -1,0 +1,4 @@
+
+python opencood/tools/inference_dair.py --model_dir opencood/logs/dair_where2comm_attn_multiscale_resnet_2026_03_20_17_17_28 --fusion_method intermediate_with_comm
+python opencood/tools/inference_dair.py --model_dir opencood/logs/dair_pb2comm_attn_multiscale_resnet_2026_03_21_14_39_34 --fusion_method intermediate_with_comm
+ 

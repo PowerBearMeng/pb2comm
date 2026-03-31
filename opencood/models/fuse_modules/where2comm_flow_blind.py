@@ -210,8 +210,14 @@ class PB2CommFusion(nn.Module):
         
         # 提取 Ego 接收方
         ego_feat = neighbor_feature[0:1]  # [1, C, H, W]
-        ego_risk = neighbor_risk[0:1]     # [1, 1, H, W] (现在绝对是1通道了)
-        
+        # ego_risk = neighbor_risk[0:1]     # [1, 1, H, W] 
+        if N == 2:
+            # 绝大多数情况：1 Ego + 1 Infra。直接切片，最高效，不要用 max
+            ego_risk = neighbor_risk[1:2]   # [1, 1, H, W]
+        else:
+            # 兜底保护：如果万一出现多节点协同 (N>2)，在空间上取最大风险
+            ego_risk = torch.max(neighbor_risk[1:], dim=0, keepdim=True)[0]
+        # print(ego_risk)
         # 兜底：只有自己时直接返回
         if N == 1:
             return ego_feat[0]

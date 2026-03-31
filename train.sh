@@ -1,0 +1,2 @@
+python opencood/tools/train_dair.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_where2comm_max_multiscale_resnet.yaml
+python opencood/tools/train_dair.py --hypes_yaml opencood/hypes_yaml/dair-v2x/dair_pb2comm.yaml 

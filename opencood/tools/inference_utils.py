@@ -119,6 +119,9 @@ def inference_intermediate_fusion_withcomm(batch_data, model, dataset):
         dataset.post_process(batch_data,
                              output_dict)
     comm_rates = output_dict['ego']['comm_rate']
+
+    return pred_box_tensor, pred_score, gt_box_tensor, comm_rates
+
     # # ================== 【新增】从字典中提取你算好的三个指标 ==================
     # time_to_req_map = output_dict['ego'].get('time_to_req_map', 0.0)
     # req_map_bytes = output_dict['ego'].get('req_map_bytes', 0.0)
@@ -127,18 +130,18 @@ def inference_intermediate_fusion_withcomm(batch_data, model, dataset):
     # print(f'time_to_req_map:{time_to_req_map}')
     # return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_to_req_map, req_map_bytes, transmitted_bytes
     
-    # return pred_box_tensor, pred_score, gt_box_tensor, comm_rates
+    
     # 在 inference_intermediate_fusion_withcomm 的 return 处：
     # 取出字典里的时间，如果没有就默认为 0
-    time_fusion = output_dict['ego'].get('time_fusion', 0.0)
+    # time_fusion = output_dict['ego'].get('time_fusion', 0.0)
 
-    # 把它加到返回列表的最后
-    return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_fusion
-    time_flow = output_dict['ego'].get('time_flow', 0)
-    time_blind = output_dict['ego'].get('time_blind', 0)
-    time_pb_attn = output_dict['ego'].get('time_pb_attn', 0)
+    # # 把它加到返回列表的最后
+    # return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_fusion
+    # time_flow = output_dict['ego'].get('time_flow', 0)
+    # time_blind = output_dict['ego'].get('time_blind', 0)
+    # time_pb_attn = output_dict['ego'].get('time_pb_attn', 0)
 
-    return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_flow, time_blind, time_pb_attn
+    # return pred_box_tensor, pred_score, gt_box_tensor, comm_rates, time_flow, time_blind, time_pb_attn
 def inference_intermediate_fusion(batch_data, model, dataset):
     """
     Model inference for early fusion.
